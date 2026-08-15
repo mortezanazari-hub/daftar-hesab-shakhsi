@@ -1,0 +1,59 @@
+Count)}`,
++      amount: installment.status === "paid" ? installment.amount : installment.remainingAmount,
++      overdue: installment.status !== "paid" && installment.overdue,
++      completed: installment.status === "paid",
++      completionLabel: "پرداخت شد",
++      loan,
++      installment,
++    }))),
++    ...(data?.checks ?? []).map((check) => ({
++      id: `check-${check.id}`,
++      source: "check" as const,
++      date: check.dueDate,
++      title: `${check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • ${check.purpose}`,
++      detail: `${check.counterpartyName} • ${check.bankName}${check.sayadId ? ` • صیاد ${check.sayadId.slice(-6)}` : ""}`,
++      amount: check.amount,
++      overdue: check.financialOpen && check.overdue,
++      completed: !check.financialOpen,
++      completionLabel: check.status === "cleared" ? (check.direction === "received" ? "وصول شد" : "پاس شد") : check.status === "cancelled" ? "باطل شد" : check.status === "returned" ? "برگشت داده شد" : "بسته شد",
++      check,
++    })),
++  ].sort((a, b) => a.date.localeCompare(b.date) || Number(a.completed) - Number(b.completed) || a.id.localeCompare(b.id));
++  const upcoming = dueItems.filter((item) => !item.completed);
++  const currentJalaliMonth = jalaliTodayParts();
++  const nextJalaliMonth = currentJalaliMonth.jm === 12
++    ? { jy: currentJalaliMonth.jy + 1, jm: 1 }
++    : { jy: currentJalaliMonth.jy, jm: currentJalaliMonth.jm + 1 };
++  const currentMonthKey = `${currentJalaliMonth.jy}/${String(currentJalaliMonth.jm).padStart(2, "0")}`;
++  const nextMonthKey = `${nextJalaliMonth.jy}/${String(nextJalaliMonth.jm).padStart(2, "0")}`;
++  const rangeDueItems = dueItems.filter((item) => {
++    if (dueRange === "all") return true;
++    const monthKey = normalizeDigits(isoToJalaliInput(item.date)).slice(0, 7);
++    return monthKey === (dueRange === "current" ? currentMonthKey : nextMonthKey);
++  });
++  const completedDueCount = rangeDueItems.filter((item) => item.completed).length;
++  const calendarDueItems = hideCompletedDue ? rangeDueItems.filter((item) => !item.completed) : rangeDueItems;
+ 
+   const normalizedLedgerSearch = ledgerSearch.trim().toLocaleLowerCase("fa");
+   const filteredAccounts = (data?.accounts ?? []).filter((account) => !normalizedLedgerSearch || `${account.name} ${account.phone}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch));
+@@ -570,10 +618,21 @@ export function FinanceApp() {
+ 
+           {tab === "calendar" && (
+             <section className="page">
+-              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>چک‌های من</button></div>
++              <div className="page-heading"><div><p className="eyebrow">مثل یک To‑Do مالی</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>چک‌های من</button></div>
++              <div className="due-toolbar">
++                <div className="filter-row due-range-filter">
++                  <button className={dueRange === "current" ? "active" : ""} onClick={() => setDueRange("current")}><strong>این ماه</strong><small>{jalaliMonthName(currentJalaliMonth.jm)}</small></button>
++                  <button className={dueRange === "next" ? "active" : ""} onClick={() => setDueRange("next")}><strong>ماه بعد</strong><small>{jalaliMonthName(nextJalaliMonth.jm)}</small></button>
++                  <button className={dueRange === "all" ? "active" : ""} onClick={() => setDueRange("all")}><strong>همه</strong><small>کل سررسیدها</small></button>
++                </div>
++                <button className={`hide-completed-due ${hideCompletedDue ? "active" : ""}`} onClick={() => setHideCompletedDue((current) => !current)}>
++                  <span>{hideCompletedDue ? "نمایش انجام‌شده‌ها" : "مخفی کردن انجام‌شده‌ها"}</span>
++                  <b>{number.format(completedDueCount)}</b>
++                </button>
++              </div>
+               <div className="timeline">
+-                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
+-                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط بانکی/فروشگاهی اینجا یکجا دیده می‌شود." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
++                {calendarDueItems.map((item) => <div className={`timeline-row ${item.completed ? "completed" : ""}`} key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}
