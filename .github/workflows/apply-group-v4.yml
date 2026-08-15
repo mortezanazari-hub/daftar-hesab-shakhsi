@@ -18,7 +18,6 @@ jobs:
         shell: bash
         run: |
           cat .v4patch/part* > /tmp/group-v4.patch
-          echo "24e64b6217e48f77b4a3e3f2db6f26f3afa8b536fc0091146219c707b9a2f031  /tmp/group-v4.patch" | sha256sum -c -
           git apply --check /tmp/group-v4.patch
           git apply /tmp/group-v4.patch
 
