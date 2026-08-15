@@ -1,0 +1,1 @@
+sonId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{
