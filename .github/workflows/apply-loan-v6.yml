@@ -18,6 +18,7 @@ jobs:
         shell: bash
         run: |
           cat .v6patch/part* > /tmp/loan-v6.patch
+          sed -i 's/className=="loan-finance-cost"/className="loan-finance-cost"/' /tmp/loan-v6.patch
           git apply --check /tmp/loan-v6.patch
           git apply /tmp/loan-v6.patch
 
@@ -31,6 +32,7 @@ jobs:
           grep -Fq 'buildJalaliInstallmentDates' app/jalali.ts
           grep -Fq 'طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص' app/FinanceApp.tsx
           grep -Fq 'پرداخت جزئی هم مجاز است' app/FinanceApp.tsx
+          grep -Fq 'className="loan-finance-cost"' app/FinanceApp.tsx
           grep -Fq '.app-icon[data-icon="calendar"]' app/globals.css
           grep -Fq '/* v5 — geometric icon centering */' app/globals.css
           grep -Fq 'daftar-hesab-offline-v4' public/sw.js
