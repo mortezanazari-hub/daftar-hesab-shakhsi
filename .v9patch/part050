@@ -1,0 +1,25 @@
+assert.match(serviceWorker, /daftar-hesab-offline-v6/);
++  assert.match(serviceWorker, /daftar-hesab-offline-v7/);
+ });
+ 
+ test("lets monthly installment reminders be completed directly from due dates", async () => {
+@@ -193,3 +193,37 @@ test("lets monthly installment reminders be completed directly from due dates",
+   assert.match(localDb, /operation === "add_loan_payment"/);
+   assert.match(jalali, /buildJalaliInstallmentDates/);
+ });
++
++
++test("filters due dates by Jalali month and keeps completed items visible like a todo list", async () => {
++  const [app, css] = await Promise.all([
++    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
++    readFile(new URL("app/globals.css", root), "utf8"),
++  ]);
++  assert.match(app, /useState<"current" \| "next" \| "all">\("current"\)/);
++  assert.match(app, /jalaliMonthName\(currentJalaliMonth\.jm\)/);
++  assert.match(app, /jalaliMonthName\(nextJalaliMonth\.jm\)/);
++  assert.match(app, /مخفی کردن انجام‌شده‌ها/);
++  assert.match(app, /نمایش انجام‌شده‌ها/);
++  assert.match(app, /completed: installment\.status === "paid"/);
++  assert.match(app, /completed: !check\.financialOpen/);
++  assert.match(app, /due-completed-label/);
++  assert.m
