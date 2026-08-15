@@ -19,7 +19,7 @@ import {
   type SettlementSuggestion,
 } from "./local-db";
 
-type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "tools" | null;
+type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "tools" | null;
 type Tab = "home" | "ledger" | "groups" | "loans" | "checks" | "calendar";
 type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
 
@@ -30,7 +30,7 @@ type DueItem =
   | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; check: CheckRecord };
 
 const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
-const checkStatusLabel: Record<CheckRecord["status"], string> = { open: "باز / در جریان", cleared: "وصول / پاس شده", bounced: "برگشتی", cancelled: "ابطال‌شده", returned: "عودت‌شده" };
+const checkStatusLabel: Record<CheckRecord["status"], string> = { open: "در جریان", cleared: "پاس شده", bounced: "برگشت خورده", cancelled: "باطل شده", returned: "برگشته" };
 const sayadStatusLabel: Record<CheckRecord["sayadStatus"], string> = { not_registered: "ثبت نشده", registered: "ثبت شده", confirmed: "تأیید شده", transferred: "منتقل شده" };
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -90,6 +90,7 @@ export function FinanceApp() {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editingLoanId, setEditingLoanId] = useState<number | null>(null);
   const [editingCheckId, setEditingCheckId] = useState<number | null>(null);
+  const [transferCheckId, setTransferCheckId] = useState<number | null>(null);
   const [paymentLoanId, setPaymentLoanId] = useState<number | null>(null);
   const [paymentInstallmentId, setPaymentInstallmentId] = useState<number | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
@@ -138,6 +139,7 @@ export function FinanceApp() {
   const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
   const editingLoan = data?.loans.find((loan) => loan.id === editingLoanId);
   const editingCheck = data?.checks.find((check) => check.id === editingCheckId);
+  const transferCheck = data?.checks.find((check) => check.id === transferCheckId);
   const paymentLoan = data?.loans.find((loan) => loan.id === paymentLoanId);
   const paymentInstallment = paymentLoan?.installments.find((installment) => installment.id === paymentInstallmentId);
   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
@@ -170,7 +172,7 @@ export function FinanceApp() {
     if (checkFilter === "received" && check.direction !== "received") return false;
     if (checkFilter === "issued" && check.direction !== "issued") return false;
     if (checkFilter === "closed" && check.financialOpen) return false;
-    return !normalizedCheckSearch || `${check.counterpartyName} ${check.bankName} ${check.branchName} ${check.purpose} ${check.sayadId} ${check.chequeNumber} ${check.issuerName} ${check.beneficiaryName} ${check.transferorName}`.toLocaleLowerCase("fa").includes(normalizedCheckSearch);
+    return !normalizedCheckSearch || `${check.counterpartyName} ${check.bankName} ${check.branchName} ${check.purpose} ${check.sayadId} ${check.chequeNumber} ${check.issuerName} ${check.beneficiaryName} ${check.transferorName} ${check.currentHolderName}`.toLocaleLowerCase("fa").includes(normalizedCheckSearch);
   });
 
   async function post(payload: Record<string, unknown>, { close = true }: { close?: boolean } = {}) {
@@ -208,6 +210,11 @@ export function FinanceApp() {
     setSheet("check-form");
   }
 
+  function openCheckTransfer(check: CheckRecord) {
+    setTransferCheckId(check.id);
+    setSheet("check-transfer");
+  }
+
   function openLoanForm(loan?: Loan) {
     setEditingLoanId(loan?.id ?? null);
     setSheet("loan-form");
@@ -217,6 +224,11 @@ export function FinanceApp() {
     setPaymentLoanId(loan.id);
     setPaymentInstallmentId(installment.id);
     setSheet("loan-payment");
+  }
+
+  function markInstallmentPaid(loan: Loan, installment: LoanInstallment) {
+    if (!window.confirm(`قسط ${number.format(installment.number)} «${loan.title}» به مبلغ ${money(installment.remainingAmount)} پرداخت شد؟`)) return;
+    void post({ operation: "add_loan_payment", loanId: loan.id, installmentId: installment.id, amount: installment.remainingAmount, paymentDate: todayIso(), note: "ثبت سریع از سررسید" }, { close: false });
   }
 
   function beginGroup(group?: Group) {
@@ -278,7 +290,11 @@ export function FinanceApp() {
 
   function updateCheckStatus(check: CheckRecord, status: CheckRecord["status"]) {
     const label = status === "cleared" ? (check.direction === "received" ? "وصول‌شده" : "پاس‌شده") : checkStatusLabel[status];
-    if (window.confirm(`وضعیت این چک به «${label}» تغییر کند؟`)) void post({ operation: "update_check_status", id: check.id, status }, { close: false });
+    if (window.confirm(`وضعیت این چک به «${label}» تغییر کند؟`)) void post({ operation: "update_check_status", id: check.id, status, eventDate: todayIso() }, { close: false });
+  }
+
+  function returnCheckToMe(check: CheckRecord) {
+    if (window.confirm(`ثبت شود که چک از «${check.currentHolderName}» دوباره دست تو برگشته؟`)) void post({ operation: "return_check_to_me", id: check.id, returnDate: todayIso(), note: "بازگشت چک به من" }, { close: false });
   }
 
   function submitPerson(event: FormEvent<HTMLFormElement>) {
@@ -361,6 +377,20 @@ export function FinanceApp() {
       issuerName: form.get("issuerName"), beneficiaryName: form.get("beneficiaryName"), transferorName: form.get("transferorName"), relatedPersonId: form.get("relatedPersonId"), counterpartyName: form.get("counterpartyName"),
       countInBalance: form.get("countInBalance"), sayadStatus: form.get("sayadStatus"), status: form.get("status"), note: form.get("note"),
     });
+  }
+
+  function submitCheckTransfer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!transferCheck) return;
+    const form = new FormData(event.currentTarget);
+    let transferDate: string;
+    try {
+      transferDate = jalaliInputToIso(String(form.get("transferDate") ?? ""), true) as string;
+    } catch (dateError) {
+      setError(dateError instanceof Error ? dateError.message : "تاریخ واگذاری معتبر نیست.");
+      return;
+    }
+    void post({ operation: "transfer_check", id: transferCheck.id, holderName: form.get("holderName"), transferDate, note: form.get("note") });
   }
 
   function submitGroup(event: FormEvent<HTMLFormElement>) {
@@ -465,7 +495,7 @@ export function FinanceApp() {
 
               <div className="section-title"><h2>نزدیک‌ترین سررسیدها</h2><button onClick={() => setTab("calendar")}>مشاهده همه</button></div>
               <div className="surface-list due-list">
-                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} />)}
+                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} />)}
                 {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک، بدهی تاریخ‌دار یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="ثبت چک" onAction={() => openCheckForm()} />}
               </div>
 
@@ -475,8 +505,8 @@ export function FinanceApp() {
                 {!data.accounts.length && <EmptyState icon="book" title="هنوز طرف حسابی نداری" detail="یک شخص اضافه کن تا دفتر کل او ساخته شود." action="افزودن شخص" onAction={() => setSheet("person")} />}
               </div>
 
-              <div className="section-title"><h2>چک‌ها</h2><button onClick={openChecks}>دفتر چک‌ها</button></div>
-              {data.checks.some((check) => check.financialOpen) ? <button className="check-home-card" onClick={openChecks}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>{number.format(data.checks.filter((check) => check.financialOpen).length)} چک باز</strong><small>{number.format(data.checks.filter((check) => check.overdue).length)} سررسید گذشته • دریافتی و پرداختی</small></div><b>{money(data.checks.filter((check) => check.financialOpen).reduce((sum, check) => sum + check.amount, 0))}</b></button> : <EmptyState icon="check" title="چک بازی نداری" detail="چک‌های دریافتی و پرداختی را با اطلاعات صیاد و طرف‌های سند مدیریت کن." action="ثبت چک" onAction={() => openCheckForm()} />}
+              <div className="section-title"><h2>چک‌ها</h2><button onClick={openChecks}>چک‌های من</button></div>
+              {data.checks.some((check) => check.financialOpen) ? <button className="check-home-card" onClick={openChecks}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>{number.format(data.checks.filter((check) => check.financialOpen).length)} چک برای پیگیری</strong><small>{number.format(data.checks.filter((check) => check.financialOpen && check.direction === "received" && check.currentHolderName !== "من").length)} واگذار شده • {number.format(data.checks.filter((check) => check.overdue).length)} سررسید گذشته</small></div><b>پیگیری ›</b></button> : <EmptyState icon="check" title="چک بازی نداری" detail="فقط ثبت کن از کی گرفتی یا به کی دادی؛ جزئیات بیشتر اختیاری است." action="ثبت چک" onAction={() => openCheckForm()} />}
 
               <div className="section-title"><h2>وام و اقساط</h2><button onClick={openLoans}>مدیریت وام‌ها</button></div>
               {data.loans.some((loan) => loan.remainingAmount > 0) ? <button className="loan-home-card" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>{number.format(data.loans.filter((loan) => loan.remainingAmount > 0).length)} قرارداد فعال</strong><small>مانده کل تعهد اقساطی</small></div><b>{money(loanDebt)}</b></button> : <EmptyState icon="bank" title="وام فعالی ثبت نشده" detail="وام بانکی یا خرید اقساطی فروشگاهی را مستقل از دفتر اشخاص مدیریت کن." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
@@ -523,26 +553,26 @@ export function FinanceApp() {
               <div className="filter-row"><button className={loanFilter === "active" ? "active" : ""} onClick={() => setLoanFilter("active")}>فعال</button><button className={loanFilter === "settled" ? "active" : ""} onClick={() => setLoanFilter("settled")}>تسویه‌شده</button><button className={loanFilter === "all" ? "active" : ""} onClick={() => setLoanFilter("all")}>همه</button></div>
               <div className="loan-stack">
                 {filteredLoans.map((loan) => <LoanCard key={loan.id} loan={loan} onEdit={() => openLoanForm(loan)} onDelete={() => deleteLoan(loan)} onPayment={(installment) => openLoanPayment(loan, installment)} onDeletePayment={deleteLoanPayment} />)}
-                {!filteredLoans.length && <EmptyState icon="bank" title={data.loans.length ? "قراردادی مطابق فیلتر پیدا نشد" : "اولین وام یا خرید اقساطی را ثبت کن"} detail={data.loans.length ? "جست‌وجو یا فیلتر را تغییر بده." : "طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص دفتر کل."} action={data.loans.length ? "نمایش همه" : "ثبت قرارداد"} onAction={() => data.loans.length ? setLoanFilter("all") : openLoanForm()} />}
+                {!filteredLoans.length && <EmptyState icon="bank" title={data.loans.length ? "قراردادی مطابق فیلتر پیدا نشد" : "اولین وام یا خرید اقساطی را ثبت کن"} detail={data.loans.length ? "جست‌وجو یا فیلتر را تغییر بده." : "بانک یا فروشگاه، مبلغ، تعداد قسط و اولین سررسید کافی است."} action={data.loans.length ? "نمایش همه" : "ثبت قرارداد"} onAction={() => data.loans.length ? setLoanFilter("all") : openLoanForm()} />}
               </div>
             </section>
           )}
 
           {tab === "checks" && (
             <section className="page checks-page">
-              <div className="page-heading"><div><p className="eyebrow">اسناد دریافتنی و پرداختنی</p><h2>دفتر چک‌ها</h2></div><button className="small-primary" onClick={() => openCheckForm()}>+ چک جدید</button></div>
-              <div className="check-summary-grid"><div><small>دریافتی باز</small><strong className="text-green">{money(data.checks.filter((check) => check.financialOpen && check.direction === "received").reduce((sum, check) => sum + check.amount, 0))}</strong></div><div><small>پرداختی باز</small><strong className="text-coral">{money(data.checks.filter((check) => check.financialOpen && check.direction === "issued").reduce((sum, check) => sum + check.amount, 0))}</strong></div><div><small>برگشتی</small><strong className={data.checks.some((check) => check.status === "bounced") ? "text-coral" : "text-green"}>{number.format(data.checks.filter((check) => check.status === "bounced").length)}</strong></div></div>
+              <div className="page-heading"><div><p className="eyebrow">گرفتم، دادم، واگذار کردم</p><h2>چک‌های من</h2></div><button className="small-primary" onClick={() => openCheckForm()}>+ چک جدید</button></div>
+              <div className="check-summary-grid personal"><div><small>چک باز</small><strong>{number.format(data.checks.filter((check) => check.financialOpen).length)} مورد</strong></div><div><small>الان دست من</small><strong>{number.format(data.checks.filter((check) => check.financialOpen && check.currentHolderName === "من").length)} مورد</strong></div><div><small>واگذار شده</small><strong>{number.format(data.checks.filter((check) => check.financialOpen && check.direction === "received" && check.currentHolderName !== "من").length)} مورد</strong></div></div>
               <SearchField value={checkSearch} onChange={setCheckSearch} placeholder="جست‌وجوی صیاد، بانک، طرف حساب یا بابت..." />
               <div className="filter-row"><button className={checkFilter === "active" ? "active" : ""} onClick={() => setCheckFilter("active")}>باز</button><button className={checkFilter === "received" ? "active" : ""} onClick={() => setCheckFilter("received")}>دریافتی</button><button className={checkFilter === "issued" ? "active" : ""} onClick={() => setCheckFilter("issued")}>پرداختی</button><button className={checkFilter === "closed" ? "active" : ""} onClick={() => setCheckFilter("closed")}>مختومه</button><button className={checkFilter === "all" ? "active" : ""} onClick={() => setCheckFilter("all")}>همه</button></div>
-              <div className="check-stack">{filteredChecks.map((check) => <CheckCard key={check.id} check={check} onEdit={() => openCheckForm(check)} onDelete={() => deleteCheck(check)} onStatus={(status) => updateCheckStatus(check, status)} />)}{!filteredChecks.length && <EmptyState icon="check" title={data.checks.length ? "چکی مطابق فیلتر پیدا نشد" : "اولین چک را ثبت کن"} detail={data.checks.length ? "جست‌وجو یا فیلتر را تغییر بده." : "دریافتی یا پرداختی، بانک، صیاد، صادرکننده، ذی‌نفع، واگذارکننده و بابت را یکجا نگه دار."} action={data.checks.length ? "نمایش همه" : "ثبت چک"} onAction={() => data.checks.length ? setCheckFilter("all") : openCheckForm()} />}</div>
+              <div className="check-stack">{filteredChecks.map((check) => <CheckCard key={check.id} check={check} onEdit={() => openCheckForm(check)} onDelete={() => deleteCheck(check)} onStatus={(status) => updateCheckStatus(check, status)} onTransfer={() => openCheckTransfer(check)} onReturn={() => returnCheckToMe(check)} />)}{!filteredChecks.length && <EmptyState icon="check" title={data.checks.length ? "چکی مطابق فیلتر پیدا نشد" : "اولین چک را ثبت کن"} detail={data.checks.length ? "جست‌وجو یا فیلتر را تغییر بده." : "از کی گرفتی یا به کی دادی، مبلغ و سررسید را ثبت کن؛ بقیه جزئیات اختیاری است."} action={data.checks.length ? "نمایش همه" : "ثبت چک"} onAction={() => data.checks.length ? setCheckFilter("all") : openCheckForm()} />}</div>
             </section>
           )}
 
           {tab === "calendar" && (
             <section className="page">
-              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>دفتر چک‌ها</button></div>
+              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>چک‌های من</button></div>
               <div className="timeline">
-                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
+                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
                 {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط بانکی/فروشگاهی اینجا یکجا دیده می‌شود." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
               </div>
             </section>
@@ -572,6 +602,7 @@ export function FinanceApp() {
           {sheet === "loan-form" && <LoanForm key={editingLoan?.id ?? "new-loan"} initialLoan={editingLoan} onSubmit={submitLoan} busy={busy} />}
           {sheet === "loan-payment" && paymentLoan && paymentInstallment && <LoanPaymentForm loan={paymentLoan} installment={paymentInstallment} onSubmit={submitLoanPayment} busy={busy} />}
           {sheet === "check-form" && <CheckForm key={editingCheck?.id ?? "new-check"} initialCheck={editingCheck} people={people} onSubmit={submitCheck} busy={busy} />}
+          {sheet === "check-transfer" && transferCheck && <CheckTransferForm check={transferCheck} people={people} onSubmit={submitCheckTransfer} busy={busy} />}
           {sheet === "tools" && <ToolsSheet onExport={handleExport} onImport={handleImport} busy={busy} />}
         </section>
       </div>}
@@ -596,40 +627,54 @@ function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entr
   </article>;
 }
 
-function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
+function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPaid: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
   const icon: IconName = item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.source === "check" ? "check" : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt";
   const positive = item.source === "check" ? item.check.direction === "received" : item.source === "entry" && item.entry.direction === "receivable";
   return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
     <span className={`due-source ${item.source}`}><Icon name={icon} size={16} /></span>
     <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
-    <div className="due-amount"><strong className={positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <button onClick={onLoanPayment}>ثبت پرداخت</button> : item.source === "check" ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
+    <div className="due-amount"><strong className={positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <span className="due-entry-actions"><button className="quick-paid" onClick={onLoanPaid}>پرداخت شد</button><button onClick={onLoanPayment} aria-label="ثبت پرداخت جزئی یا تاریخ دیگر"><Icon name="edit" size={12} /></button></span> : item.source === "check" ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
   </article>;
 }
 
-function CheckCard({ check, onEdit, onDelete, onStatus }: { check: CheckRecord; onEdit: () => void; onDelete: () => void; onStatus: (status: CheckRecord["status"]) => void }) {
+function CheckCard({ check, onEdit, onDelete, onStatus, onTransfer, onReturn }: { check: CheckRecord; onEdit: () => void; onDelete: () => void; onStatus: (status: CheckRecord["status"]) => void; onTransfer: () => void; onReturn: () => void }) {
   const stateTone = check.status === "bounced" ? "danger" : check.financialOpen ? "active" : "closed";
+  const movementLabel = check.direction === "received"
+    ? (check.currentHolderName === "من" ? `از ${check.counterpartyName} گرفتم • الان دست من` : `از ${check.counterpartyName} گرفتم • الان نزد ${check.currentHolderName}`)
+    : `به ${check.currentHolderName || check.counterpartyName} دادم`;
+  const eventLabel = (type: CheckRecord["events"][number]["type"], event: CheckRecord["events"][number]) => {
+    if (type === "received") return `از ${event.fromName} گرفتم`;
+    if (type === "issued") return `به ${event.toName} دادم`;
+    if (type === "transferred") return `به ${event.toName} واگذار کردم`;
+    if (type === "cleared") return check.direction === "received" ? "وصول شد" : "پاس شد";
+    if (type === "bounced") return "برگشت خورد";
+    if (type === "returned") return event.toName === "من" ? `از ${event.fromName} دوباره دست من برگشت` : "عودت شد";
+    if (type === "cancelled") return "باطل شد";
+    return "دوباره در جریان قرار گرفت";
+  };
   return <article className={`check-card ${check.direction} ${stateTone}`}>
-    <div className="check-card-head"><span className="check-doc-icon"><Icon name="check" size={19} /></span><div><small>{check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • {check.bankName}{check.branchName ? ` / ${check.branchName}` : ""}</small><h3>{check.purpose}</h3><i>سررسید {persianDate(check.dueDate, true)}</i></div><span className="check-card-actions"><button onClick={onEdit} aria-label="ویرایش چک"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف چک"><Icon name="trash" size={13} /></button></span></div>
-    <div className="check-amount-line"><strong className={check.direction === "received" ? "text-green" : "text-coral"}>{check.direction === "received" ? "+" : "−"}{money(check.amount)}</strong><span className={`check-status-pill ${stateTone}`}>{checkStatusLabel[check.status]}</span></div>
-    <div className="check-parties"><span><small>صادرکننده / صاحب حساب</small><b>{check.issuerName}</b></span><span><small>در وجه / ذی‌نفع</small><b>{check.beneficiaryName}</b></span>{check.transferorName && <span><small>واگذارکننده به من</small><b>{check.transferorName}</b></span>}<span><small>طرف حساب مالی</small><b>{check.counterpartyName}{check.relatedPersonId ? " • دفتر اشخاص" : " • خارج دفتر"}</b></span></div>
-    <div className="check-meta-row"><span>صیاد: <b>{check.sayadId || "—"}</b></span><span>{sayadStatusLabel[check.sayadStatus]}</span>{check.chequeNumber && <span>شماره: <b>{check.chequeNumber}</b></span>}<span>{check.countInBalance ? "در مانده محاسبه می‌شود" : "بدون اثر مستقل در مانده"}</span></div>
-    {check.note && <p className="check-note">{check.note}</p>}
-    <div className="check-status-actions">{check.status !== "cleared" && <button className="success" onClick={() => onStatus("cleared")}>{check.direction === "received" ? "ثبت وصول" : "ثبت پاس شدن"}</button>}{check.status !== "bounced" && check.status !== "cleared" && <button className="danger" onClick={() => onStatus("bounced")}>برگشت خورد</button>}{check.status !== "open" && <button onClick={() => onStatus("open")}>بازگردانی به جریان</button>}</div>
+    <div className="check-card-head"><span className="check-doc-icon"><Icon name="check" size={19} /></span><div><small>{check.direction === "received" ? "گرفتم" : "دادم"} • {check.bankName}</small><h3>{check.purpose}</h3><i>{movementLabel}</i></div><span className="check-card-actions"><button onClick={onEdit} aria-label="ویرایش چک"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف چک"><Icon name="trash" size={13} /></button></span></div>
+    <div className="check-personal-summary"><div><small>مبلغ</small><strong className={check.direction === "received" ? "text-green" : "text-coral"}>{money(check.amount)}</strong></div><div><small>سررسید</small><strong className={check.overdue ? "text-coral" : ""}>{persianDate(check.dueDate, true)}</strong></div><span className={`check-status-pill ${stateTone}`}>{checkStatusLabel[check.status]}</span></div>
+    {check.financialOpen && <div className="check-primary-actions">{check.direction === "received" && check.currentHolderName === "من" && <button onClick={onTransfer}>واگذار کردم</button>}{check.direction === "received" && check.currentHolderName !== "من" && <button className="soft" onClick={onReturn}>دوباره دست من برگشت</button>}<button className="success" onClick={() => onStatus("cleared")}>{check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button className="danger" onClick={() => onStatus("bounced")}>برگشت خورد</button></div>}
+    <details className="check-details"><summary>جزئیات و مسیر چک <b>{number.format(check.events.length)} رویداد</b></summary>
+      <div className="check-parties"><span><small>از / طرف حساب</small><b>{check.counterpartyName}</b></span><span><small>صادرکننده</small><b>{check.issuerName}</b></span><span><small>الان دست کیه؟</small><b>{check.currentHolderName}</b></span>{check.transferorName && <span><small>واگذارکننده اولیه</small><b>{check.transferorName}</b></span>}</div>
+      <div className="check-meta-row"><span>صیاد: <b>{check.sayadId || "ثبت نشده"}</b></span><span>{sayadStatusLabel[check.sayadStatus]}</span>{check.branchName && <span>شعبه: <b>{check.branchName}</b></span>}{check.chequeNumber && <span>شماره: <b>{check.chequeNumber}</b></span>}<span>{check.countInBalance ? "در مانده حساب هست" : "فقط برای رهگیری"}</span></div>
+      {check.events.length > 0 && <div className="check-timeline">{check.events.map((event) => <div key={event.id}><span className="timeline-dot" /><div><strong>{eventLabel(event.type, event)}</strong><small>{persianDate(event.eventDate, true)}{event.note ? ` • ${event.note}` : ""}</small></div></div>)}</div>}
+      {check.note && <p className="check-note">{check.note}</p>}
+      {check.status !== "open" && <button className="reopen-check" onClick={() => onStatus("open")}>برگردان به جریان</button>}
+    </details>
   </article>;
 }
 
 function LoanCard({ loan, onEdit, onDelete, onPayment, onDeletePayment }: { loan: Loan; onEdit: () => void; onDelete: () => void; onPayment: (installment: LoanInstallment) => void; onDeletePayment: (id: number) => void }) {
   const progress = loan.totalPayable > 0 ? Math.min(100, Math.round((loan.totalPaid / loan.totalPayable) * 100)) : 0;
   const providerIcon: IconName = loan.providerType === "store" ? "store" : "bank";
-  return <article className={`loan-card ${loan.remainingAmount === 0 ? "settled" : ""}`}>
-    <div className="loan-card-head"><span className="loan-provider-icon"><Icon name={providerIcon} size={19} /></span><div><small>{providerTypeLabel[loan.providerType]} • {loan.providerName}</small><h3>{loan.title}</h3>{loan.contractNumber && <i>قرارداد: {loan.contractNumber}</i>}</div><span className="loan-card-actions"><button onClick={onEdit} aria-label="ویرایش قرارداد"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف قرارداد"><Icon name="trash" size={13} /></button></span></div>
-    <div className="loan-progress"><span><i style={{ width: `${progress}%` }} /></span><small>{number.format(progress)}٪ پرداخت شده</small></div>
-    <div className="loan-money-grid"><div><small>کل قرارداد</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong className={loan.remainingAmount ? "text-coral" : "text-green"}>{loan.remainingAmount ? money(loan.remainingAmount) : "تسویه کامل"}</strong></div></div>
-    {loan.financeCost > 0 && <p className="loan-finance-cost">اختلاف مبلغ پایه و کل قرارداد: <b>{money(loan.financeCost)}</b></p>}
-    {loan.nextInstallment ? <div className={`next-installment ${loan.nextInstallment.overdue ? "overdue" : ""}`}><div><small>{loan.nextInstallment.overdue ? "قسط عقب‌افتاده" : "قسط بعدی"}</small><strong>قسط {number.format(loan.nextInstallment.number)} • {persianDate(loan.nextInstallment.dueDate, true)}</strong></div><b>{money(loan.nextInstallment.remainingAmount)}</b><button onClick={() => onPayment(loan.nextInstallment)}>پرداخت</button></div> : <div className="loan-settled-banner"><Icon name="calendar-check" size={16} /> همه اقساط پرداخت شده‌اند</div>}
-    {loan.overdueCount > 0 && <p className="overdue-note">{number.format(loan.overdueCount)} قسط سررسید گذشته و هنوز مانده دارد.</p>}
-    <details className="loan-schedule"><summary><span><Icon name="calendar" size={15} />برنامه {number.format(loan.installmentCount)} قسط</span><b>{number.format(loan.paidCount)} پرداخت کامل</b></summary><div className="loan-installment-list">{loan.installments.map((installment) => <article key={installment.id} className={`${installment.status} ${installment.overdue ? "overdue" : ""}`}><span className="installment-number">{number.format(installment.number)}</span><div><strong>{persianDate(installment.dueDate, true)}</strong><small>{installment.status === "paid" ? "پرداخت کامل" : installment.status === "partial" ? `پرداخت جزئی ${money(installment.paidAmount)}` : installment.overdue ? "عقب‌افتاده" : "در انتظار پرداخت"}</small></div><b>{money(installment.remainingAmount || installment.amount)}</b>{installment.remainingAmount > 0 && <button onClick={() => onPayment(installment)}>پرداخت</button>}{installment.payments.length > 0 && <details className="installment-payments"><summary>{number.format(installment.payments.length)} پرداخت ثبت‌شده</summary><div>{installment.payments.map((payment) => <span key={payment.id}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}</i><b>{money(payment.amount)}</b><button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div></details>
-    {loan.note && <p className="loan-note">{loan.note}</p>}
+  return <article className={`loan-card personal ${loan.remainingAmount === 0 ? "settled" : ""}`}>
+    <div className="loan-card-head"><span className="loan-provider-icon"><Icon name={providerIcon} size={19} /></span><div><small>{loan.providerName}</small><h3>{loan.title}</h3><i>{number.format(loan.paidCount)} از {number.format(loan.installmentCount)} قسط پرداخت شده</i></div><span className="loan-card-actions"><button onClick={onEdit} aria-label="ویرایش"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف"><Icon name="trash" size={13} /></button></span></div>
+    {loan.nextInstallment ? <div className={`next-installment personal ${loan.nextInstallment.overdue ? "overdue" : ""}`}><div><small>{loan.nextInstallment.overdue ? "این قسط عقب افتاده" : "قسط بعدی"}</small><strong>{persianDate(loan.nextInstallment.dueDate, true)}</strong></div><b>{money(loan.nextInstallment.remainingAmount)}</b><button onClick={() => onPayment(loan.nextInstallment)}>پرداخت</button></div> : <div className="loan-settled-banner"><Icon name="calendar-check" size={16} /> همه اقساط پرداخت شده‌اند</div>}
+    <div className="loan-progress"><span><i style={{ width: `${progress}%` }} /></span><small>{number.format(progress)}٪ جلو رفته</small></div>
+    <div className="loan-personal-stats"><span><small>مانده</small><strong className={loan.remainingAmount ? "text-coral" : "text-green"}>{loan.remainingAmount ? money(loan.remainingAmount) : "تمام شد"}</strong></span>{loan.overdueCount > 0 && <span className="danger"><small>عقب‌افتاده</small><strong>{number.format(loan.overdueCount)} قسط</strong></span>}</div>
+    <details className="loan-schedule personal"><summary><span>جزئیات و همه قسط‌ها</span><b>{number.format(loan.installmentCount)} نوبت</b></summary><div className="loan-extra"><div className="loan-money-grid"><div><small>کل</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong>{money(loan.remainingAmount)}</strong></div></div>{loan.contractNumber && <p className="loan-note">شماره قرارداد: {loan.contractNumber}</p>}{loan.financeCost > 0 && <p className="loan-finance-cost">اختلاف مبلغ پایه و کل پرداخت: <b>{money(loan.financeCost)}</b></p>}<div className="loan-installment-list">{loan.installments.map((installment) => <article key={installment.id} className={`${installment.status} ${installment.overdue ? "overdue" : ""}`}><span className="installment-number">{number.format(installment.number)}</span><div><strong>{persianDate(installment.dueDate, true)}</strong><small>{installment.status === "paid" ? "پرداخت شد" : installment.status === "partial" ? `بخشی پرداخت شده` : installment.overdue ? "عقب افتاده" : "هنوز نرسیده"}</small></div><b>{money(installment.remainingAmount || installment.amount)}</b>{installment.remainingAmount > 0 && <button onClick={() => onPayment(installment)}>پرداخت</button>}{installment.payments.length > 0 && <details className="installment-payments"><summary>{number.format(installment.payments.length)} پرداخت</summary><div>{installment.payments.map((payment) => <span key={payment.id}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}</i><b>{money(payment.amount)}</b><button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div>{loan.note && <p className="loan-note">{loan.note}</p>}</div></details>
   </article>;
 }
 
@@ -707,9 +752,11 @@ function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: Ch
   const [checkType, setCheckType] = useState<CheckRecord["checkType"]>(initialCheck?.checkType ?? "sayadi");
   const [counterpartyMode, setCounterpartyMode] = useState<"person" | "custom">(initialCheck?.relatedPersonId ? "person" : "custom");
   const [relatedPersonId, setRelatedPersonId] = useState(initialCheck?.relatedPersonId ? String(initialCheck.relatedPersonId) : "");
+  const [customCounterparty, setCustomCounterparty] = useState(initialCheck?.relatedPersonId ? "" : initialCheck?.counterpartyName ?? "");
   const [issuerName, setIssuerName] = useState(initialCheck?.issuerName ?? (initialCheck?.direction === "issued" ? "من" : ""));
-  const [beneficiaryName, setBeneficiaryName] = useState(initialCheck?.beneficiaryName ?? (initialCheck?.direction === "issued" ? "" : "من"));
+  const [beneficiaryName, setBeneficiaryName] = useState(initialCheck?.beneficiaryName ?? (initialCheck?.direction === "received" ? "من" : ""));
   const selectedPerson = people.find((person) => person.id === Number(relatedPersonId));
+  const partyName = counterpartyMode === "person" ? selectedPerson?.name ?? "" : customCounterparty;
   function chooseDirection(next: CheckRecord["direction"]) {
     if (next === direction) return;
     setDirection(next);
@@ -718,29 +765,46 @@ function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: Ch
       setBeneficiaryName(next === "received" ? "من" : "");
     }
   }
-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>سند چک را جدا از بدهی/طلب ساده ثبت کن</p><h2>{initialCheck ? "ویرایش چک" : "چک جدید"}</h2></div>
-    <div className="check-direction-picker"><button type="button" className={direction === "received" ? "active received" : ""} onClick={() => chooseDirection("received")}><Icon name="receivable" size={16} /><span><strong>چک گرفته‌ام</strong><small>مطالبه / سند دریافتنی</small></span></button><button type="button" className={direction === "issued" ? "active issued" : ""} onClick={() => chooseDirection("issued")}><Icon name="debt" size={16} /><span><strong>چک داده‌ام</strong><small>تعهد / سند پرداختنی</small></span></button></div>
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>ساده ثبتش کن؛ جزئیات همیشه بعداً قابل تکمیل‌اند</p><h2>{initialCheck ? "ویرایش چک" : "چک جدید"}</h2></div>
+    <div className="check-direction-picker personal"><button type="button" className={direction === "received" ? "active received" : ""} onClick={() => chooseDirection("received")}><Icon name="receivable" size={16} /><span><strong>گرفتم</strong><small>یک چک دست من آمده</small></span></button><button type="button" className={direction === "issued" ? "active issued" : ""} onClick={() => chooseDirection("issued")}><Icon name="debt" size={16} /><span><strong>دادم</strong><small>یک چک از من خارج شده</small></span></button></div>
     <input type="hidden" name="direction" value={direction} />
-    <div className="check-section-title"><strong>طرف حساب مالی</strong><small>کسی که این چک در رابطه مالی تو با اوست</small></div>
-    <div className="check-counterparty-tabs"><button type="button" className={counterpartyMode === "person" ? "active" : ""} onClick={() => setCounterpartyMode("person")}>از دفتر اشخاص</button><button type="button" className={counterpartyMode === "custom" ? "active" : ""} onClick={() => setCounterpartyMode("custom")}>فروشگاه / شرکت / شخص دیگر</button></div>
-    {counterpartyMode === "person" ? <label>شخص مرتبط<select name="relatedPersonId" required value={relatedPersonId} onChange={(event) => setRelatedPersonId(event.target.value)}><option value="" disabled>انتخاب از دفتر</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><input type="hidden" name="counterpartyName" value={selectedPerson?.name ?? ""} /></label> : <><input type="hidden" name="relatedPersonId" value="" /><label>نام طرف حساب<input name="counterpartyName" required defaultValue={initialCheck?.relatedPersonId ? "" : initialCheck?.counterpartyName ?? ""} placeholder="مثلاً فروشگاه ایکس، شرکت آلفا یا رضا محمدی" /></label></>}
-    <label className="balance-effect-toggle"><input type="checkbox" name="countInBalance" defaultChecked={initialCheck?.countInBalance ?? true} /><span><strong>در مانده حساب محاسبه شود</strong><small>اگر همین بدهی/طلب را قبلاً جدا ثبت کرده‌ای، خاموشش کن تا دوباره‌شماری نشود.</small></span></label>
-    <div className="check-section-title"><strong>مشخصات سند</strong><small>اطلاعات روی برگه و سامانه صیاد</small></div>
-    <div className="check-two-cols"><label>نوع چک<select name="checkType" value={checkType} onChange={(event) => setCheckType(event.target.value as CheckRecord["checkType"])}><option value="sayadi">صیادی</option><option value="guaranteed">تضمین‌شده بانکی</option><option value="other">سایر / قدیمی</option></select></label><label>بانک<input name="bankName" required defaultValue={initialCheck?.bankName ?? ""} placeholder="مثلاً بانک ملت" /></label></div>
-    <div className="check-two-cols"><label>شعبه <small>(اختیاری)</small><input name="branchName" defaultValue={initialCheck?.branchName ?? ""} placeholder="نام یا کد شعبه" /></label><label>شماره برگه / سریال <small>(اختیاری)</small><input name="chequeNumber" inputMode="numeric" defaultValue={initialCheck?.chequeNumber ?? ""} placeholder="شماره چاپی چک" /></label></div>
-    <label>شناسه صیادی {checkType !== "sayadi" && <small>(اختیاری)</small>}<input name="sayadId" inputMode="numeric" required={checkType === "sayadi"} maxLength={16} defaultValue={initialCheck?.sayadId ?? ""} placeholder="۱۶ رقم شناسه صیادی" /></label>
-    <div className="check-two-cols"><label>وضعیت در صیاد<select name="sayadStatus" defaultValue={initialCheck?.sayadStatus ?? "not_registered"}><option value="not_registered">ثبت نشده / نامشخص</option><option value="registered">ثبت شده</option><option value="confirmed">توسط ذی‌نفع تأیید شده</option><option value="transferred">از طریق صیاد منتقل شده</option></select></label><label>وضعیت مالی<select name="status" defaultValue={initialCheck?.status ?? "open"}><option value="open">باز / در جریان</option><option value="cleared">وصول / پاس شده</option><option value="bounced">برگشتی</option><option value="cancelled">ابطال‌شده</option><option value="returned">عودت‌شده</option></select></label></div>
-    <MoneyInput name="amount" label="مبلغ چک (تومان)" required defaultValue={initialCheck?.amount} placeholder="مثلاً ۲۵٬۰۰۰٬۰۰۰" />
-    <label>بابت<input name="purpose" required defaultValue={initialCheck?.purpose ?? ""} placeholder="مثلاً اجاره، خرید کالا، تسویه حساب یا ضمانت" /></label>
-    <div className="check-date-grid"><JalaliDatePicker name="issueDate" label="تاریخ صدور" optional initialValue={initialCheck?.issueDate ? isoToJalaliInput(initialCheck.issueDate) : ""} /><JalaliDatePicker name="dueDate" label="تاریخ سررسید" required initialValue={initialCheck ? isoToJalaliInput(initialCheck.dueDate) : ""} /></div>
-    <div className="check-section-title"><strong>طرف‌های مندرج روی چک</strong><small>طرف حساب مالی با صادرکننده یا واگذارکننده الزاماً یکی نیست</small></div>
-    <label>صادرکننده / صاحب حساب<input name="issuerName" required value={issuerName} onChange={(event) => setIssuerName(event.target.value)} placeholder={direction === "received" ? "نام صاحب حساب یا شرکت صادرکننده" : "نام صاحب حسابی که چک از آن صادر شده"} /></label>
-    <label>در وجه / ذی‌نفع فعلی<input name="beneficiaryName" required value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder={direction === "issued" ? "نام شخص یا شرکت ذی‌نفع" : "نام ذی‌نفع ثبت‌شده در صیاد"} /></label>
-    {direction === "received" && <label>واگذارکننده به من <small>(اگر چک شخص ثالث است)</small><input name="transferorName" defaultValue={initialCheck?.transferorName ?? ""} placeholder="مثلاً علی چکِ صادرشده توسط شخص دیگری را به من داده" /></label>}
-    {direction === "issued" && <input type="hidden" name="transferorName" value="" />}
-    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={3} defaultValue={initialCheck?.note ?? ""} placeholder="شماره حساب، توضیح ضمانت، نحوه تحویل یا هر نکته مهم..." /></label>
-    <p className="form-hint">برای چک صیادی جدید، ذی‌نفع، مبلغ و تاریخ باید با اطلاعات ثبت‌شده در صیاد هم‌خوان باشد. «واگذارکننده» را فقط وقتی پر کن که چک شخص ثالث از طریق انتقال به تو رسیده باشد.</p>
-    <SubmitButton busy={busy} label={initialCheck ? "ذخیره تغییرات چک" : "ثبت چک"} />
+    <div className="check-counterparty-tabs"><button type="button" className={counterpartyMode === "person" ? "active" : ""} onClick={() => setCounterpartyMode("person")}>از آدم‌های دفتر</button><button type="button" className={counterpartyMode === "custom" ? "active" : ""} onClick={() => setCounterpartyMode("custom")}>شخص / فروشگاه دیگر</button></div>
+    {counterpartyMode === "person" ? <label>{direction === "received" ? "از چه کسی گرفتم؟" : "به چه کسی دادم؟"}<select name="relatedPersonId" required value={relatedPersonId} onChange={(event) => setRelatedPersonId(event.target.value)}><option value="" disabled>انتخاب شخص</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><input type="hidden" name="counterpartyName" value={partyName} /></label> : <><input type="hidden" name="relatedPersonId" value="" /><label>{direction === "received" ? "از چه کسی گرفتم؟" : "به چه کسی دادم؟"}<input name="counterpartyName" required value={customCounterparty} onChange={(event) => setCustomCounterparty(event.target.value)} placeholder="مثلاً علی، فروشگاه ایکس یا شرکت آلفا" /></label></>}
+    <MoneyInput name="amount" label="مبلغ (تومان)" required defaultValue={initialCheck?.amount} placeholder="مثلاً ۲۵٬۰۰۰٬۰۰۰" />
+    <label>بابت چی؟<input name="purpose" required defaultValue={initialCheck?.purpose ?? ""} placeholder="مثلاً اجاره، خرید یا تسویه" /></label>
+    <JalaliDatePicker name="dueDate" label="کی باید پاس بشه؟" required initialValue={initialCheck ? isoToJalaliInput(initialCheck.dueDate) : ""} />
+    <label>کدوم بانک؟<input name="bankName" required defaultValue={initialCheck?.bankName ?? ""} placeholder="مثلاً بانک ملت" /></label>
+    <label>شناسه صیاد <small>(اختیاری؛ بعداً هم می‌تونی اضافه کنی)</small><input name="sayadId" inputMode="numeric" maxLength={16} defaultValue={initialCheck?.sayadId ?? ""} placeholder="۱۶ رقم" /></label>
+    <details className="advanced-fields"><summary>جزئیات بیشتر <small>اختیاری</small></summary><div>
+      <label className="balance-effect-toggle"><input type="checkbox" name="countInBalance" defaultChecked={initialCheck?.countInBalance ?? true} /><span><strong>این چک خودش روی حساب اثر بگذارد</strong><small>اگر بدهی یا طلبش را قبلاً جدا ثبت کردی، خاموشش کن.</small></span></label>
+      <div className="check-two-cols"><label>نوع چک<select name="checkType" value={checkType} onChange={(event) => setCheckType(event.target.value as CheckRecord["checkType"])}><option value="sayadi">صیادی</option><option value="guaranteed">تضمین‌شده بانکی</option><option value="other">سایر / قدیمی</option></select></label><label>شعبه<input name="branchName" defaultValue={initialCheck?.branchName ?? ""} placeholder="اختیاری" /></label></div>
+      <label>شماره برگه / سریال <small>(اختیاری)</small><input name="chequeNumber" inputMode="numeric" defaultValue={initialCheck?.chequeNumber ?? ""} /></label>
+      <JalaliDatePicker name="issueDate" label="تاریخ صدور" optional initialValue={initialCheck?.issueDate ? isoToJalaliInput(initialCheck.issueDate) : ""} />
+      <div className="check-two-cols"><label>وضعیت صیاد<select name="sayadStatus" defaultValue={initialCheck?.sayadStatus ?? "not_registered"}><option value="not_registered">نامشخص / ثبت نشده</option><option value="registered">ثبت شده</option><option value="confirmed">تأیید شده</option><option value="transferred">منتقل شده</option></select></label><label>وضعیت چک<select name="status" defaultValue={initialCheck?.status ?? "open"}><option value="open">در جریان</option><option value="cleared">پاس شده</option><option value="bounced">برگشت خورده</option><option value="cancelled">باطل شده</option><option value="returned">برگشته</option></select></label></div>
+      <label>چک مال چه کسیه؟ <small>(صادرکننده)</small><input name="issuerName" value={issuerName} onChange={(event) => setIssuerName(event.target.value)} placeholder={direction === "received" ? partyName || "اگر شخص ثالث است، اسم صاحب چک" : "من"} /></label>
+      <label>الان در وجه کیه؟<input name="beneficiaryName" value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder={direction === "received" ? "من" : partyName || "نام گیرنده"} /></label>
+      {direction === "received" ? <label>چه کسی این چک رو به من داد؟ <small>(اگر با صادرکننده فرق دارد)</small><input name="transferorName" defaultValue={initialCheck?.transferorName ?? ""} /></label> : <input type="hidden" name="transferorName" value="" />}
+      <label>یادداشت<textarea name="note" rows={2} defaultValue={initialCheck?.note ?? ""} placeholder="هر چیزی که بعداً یادت می‌رود..." /></label>
+    </div></details>
+    <SubmitButton busy={busy} label={initialCheck ? "ذخیره" : "ثبت چک"} />
+  </form>;
+}
+
+function CheckTransferForm({ check, people, onSubmit, busy }: { check: CheckRecord; people: Person[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
+  const [mode, setMode] = useState<"person" | "custom">("person");
+  const [personId, setPersonId] = useState("");
+  const [customName, setCustomName] = useState("");
+  const person = people.find((item) => item.id === Number(personId));
+  const holderName = mode === "person" ? person?.name ?? "" : customName;
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>{check.purpose} • {money(check.amount)}</p><h2>چک رو به کی دادم؟</h2></div>
+    <div className="check-current-holder"><small>الان</small><strong>دست خودته</strong><span>سررسید {persianDate(check.dueDate, true)}</span></div>
+    <div className="check-counterparty-tabs"><button type="button" className={mode === "person" ? "active" : ""} onClick={() => setMode("person")}>یکی از آدم‌های دفتر</button><button type="button" className={mode === "custom" ? "active" : ""} onClick={() => setMode("custom")}>شخص / فروشگاه دیگر</button></div>
+    {mode === "person" ? <label>به چه کسی دادم؟<select required value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="" disabled>انتخاب شخص</option>{people.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : <label>به چه کسی دادم؟<input required value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="مثلاً فروشگاه کوروش" /></label>}
+    <input type="hidden" name="holderName" value={holderName} />
+    <JalaliDatePicker name="transferDate" label="کی واگذار کردم؟" defaultToday required />
+    <label>بابت چی؟ <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً بابت اجاره یا تسویه بدهی" /></label>
+    <p className="form-hint">این چک تا وقتی پاس شود از لیست پیگیری حذف نمی‌شود؛ فقط برنامه یادش می‌ماند الان دست چه کسی است.</p>
+    <SubmitButton busy={busy} label="ثبت واگذاری" />
   </form>;
 }
 
@@ -756,21 +820,26 @@ function LoanForm({ initialLoan, onSubmit, busy }: { initialLoan?: Loan; onSubmi
   const lastInstallment = installmentCount > 0 ? financedAmount - baseInstallment * Math.max(0, installmentCount - 1) : 0;
   const financeCost = principalAmount > 0 ? Math.max(0, totalPayable - principalAmount) : 0;
 
-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص</p><h2>{initialLoan ? "ویرایش قرارداد اقساطی" : "وام / خرید اقساطی جدید"}</h2></div>
-    <div className="loan-provider-fields"><label>نوع طرف حساب<select name="providerType" defaultValue={initialLoan?.providerType ?? "bank"}><option value="bank">بانک</option><option value="store">فروشگاه</option><option value="other">مؤسسه / سایر</option></select></label><label>نام بانک / فروشگاه<input name="providerName" required autoFocus defaultValue={initialLoan?.providerName ?? ""} placeholder="مثلاً بانک ملت یا دیجی‌کالا" /></label></div>
-    <label>عنوان قرارداد<input name="title" required defaultValue={initialLoan?.title ?? ""} placeholder="مثلاً وام خودرو یا خرید اقساطی لپ‌تاپ" /></label>
-    <label>شماره قرارداد / پرونده <small>(اختیاری)</small><input name="contractNumber" defaultValue={initialLoan?.contractNumber ?? ""} placeholder="شماره وام، قرارداد یا پرونده" /></label>
-    {scheduleLocked ? <div className="locked-loan-schedule"><div><Icon name="bank" size={18} /><span><strong>زمان‌بندی مالی قفل است</strong><small>چون برای این قرارداد پرداخت ثبت شده، مبلغ و سررسیدها برای حفظ تاریخچه تغییر نمی‌کنند.</small></span></div><div className="locked-loan-grid"><span><small>کل قرارداد</small><b>{money(initialLoan?.totalPayable ?? 0)}</b></span><span><small>پیش‌پرداخت</small><b>{money(initialLoan?.downPayment ?? 0)}</b></span><span><small>تعداد اقساط</small><b>{number.format(initialLoan?.installmentCount ?? 0)}</b></span><span><small>اولین سررسید</small><b>{persianDate(initialLoan?.firstDueDate, true)}</b></span></div><input type="hidden" name="principalAmount" value={initialLoan?.principalAmount ?? 0} /><input type="hidden" name="totalPayable" value={initialLoan?.totalPayable ?? 0} /><input type="hidden" name="downPayment" value={initialLoan?.downPayment ?? 0} /><input type="hidden" name="installmentCount" value={initialLoan?.installmentCount ?? 1} /><input type="hidden" name="intervalMonths" value={initialLoan?.intervalMonths ?? 1} /><input type="hidden" name="firstDueDate" value={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} /></div> : <>
-      <MoneyInput name="principalAmount" label="مبلغ پایه / اصل وام (تومان) — اختیاری" defaultValue={initialLoan?.principalAmount} placeholder="برای محاسبه هزینه تأمین مالی" onValueChange={setPrincipalAmount} />
-      <MoneyInput name="totalPayable" label="مبلغ کل قرارداد (تومان)" required defaultValue={initialLoan?.totalPayable} placeholder="پیش‌پرداخت + تمام اقساط" onValueChange={setTotalPayable} />
-      <MoneyInput name="downPayment" label="پیش‌پرداخت (تومان) — اختیاری" defaultValue={initialLoan?.downPayment} placeholder="اگر ندارد صفر بگذار" onValueChange={setDownPayment} />
-      <div className="loan-schedule-fields"><label>تعداد اقساط<input name="installmentCount" type="number" min="1" max="600" required value={installmentCount} onChange={(event) => setInstallmentCount(Math.max(1, Number(event.target.value) || 1))} /></label><label>هر چند ماه؟<input name="intervalMonths" type="number" min="1" max="24" required value={intervalMonths} onChange={(event) => setIntervalMonths(Math.max(1, Number(event.target.value) || 1))} /></label></div>
-      <JalaliDatePicker name="firstDueDate" label="اولین تاریخ سررسید" required initialValue={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} />
-      {financedAmount > 0 && installmentCount > 0 && <div className="loan-preview"><span><small>مبلغ قابل تقسیط</small><strong>{money(financedAmount)}</strong></span><span><small>قسط معمول</small><strong>{money(baseInstallment)}</strong></span><span><small>قسط آخر</small><strong>{money(lastInstallment)}</strong></span>{financeCost > 0 && <span><small>اختلاف با مبلغ پایه</small><strong>{money(financeCost)}</strong></span>}</div>}
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>فقط چیزهایی که برای یادآوری قسط لازم داری</p><h2>{initialLoan ? "ویرایش قسط" : "قسط / وام جدید"}</h2></div>
+    <div className="loan-provider-fields"><label>نوع<select name="providerType" defaultValue={initialLoan?.providerType ?? "bank"}><option value="bank">بانک</option><option value="store">فروشگاه</option><option value="other">سایر</option></select></label><label>کجا؟<input name="providerName" required autoFocus defaultValue={initialLoan?.providerName ?? ""} placeholder="مثلاً بانک ملت یا دیجی‌کالا" /></label></div>
+    <label>برای چی؟<input name="title" required defaultValue={initialLoan?.title ?? ""} placeholder="مثلاً وام ماشین یا لپ‌تاپ" /></label>
+    {scheduleLocked ? <div className="locked-loan-schedule"><div><Icon name="calendar-check" size={18} /><span><strong>برنامه قسط‌ها شروع شده</strong><small>برای اینکه پرداخت‌های قبلی به‌هم نریزد، مبلغ و تاریخ‌ها دیگر تغییر نمی‌کنند.</small></span></div><div className="locked-loan-grid"><span><small>کل</small><b>{money(initialLoan?.totalPayable ?? 0)}</b></span><span><small>تعداد</small><b>{number.format(initialLoan?.installmentCount ?? 0)} قسط</b></span><span><small>اولین سررسید</small><b>{persianDate(initialLoan?.firstDueDate, true)}</b></span><span><small>مانده</small><b>{money(initialLoan?.remainingAmount ?? 0)}</b></span></div><input type="hidden" name="principalAmount" value={initialLoan?.principalAmount ?? 0} /><input type="hidden" name="totalPayable" value={initialLoan?.totalPayable ?? 0} /><input type="hidden" name="downPayment" value={initialLoan?.downPayment ?? 0} /><input type="hidden" name="installmentCount" value={initialLoan?.installmentCount ?? 1} /><input type="hidden" name="intervalMonths" value={initialLoan?.intervalMonths ?? 1} /><input type="hidden" name="firstDueDate" value={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} /></div> : <>
+      <MoneyInput name="totalPayable" label="در مجموع چقدر باید بدم؟" required defaultValue={initialLoan?.totalPayable} placeholder="کل مبلغی که پرداخت می‌کنی" onValueChange={setTotalPayable} />
+      <MoneyInput name="downPayment" label="پیش‌پرداخت (اگر داشتی)" defaultValue={initialLoan?.downPayment} placeholder="صفر هم می‌تونه باشه" onValueChange={setDownPayment} />
+      <label>چند قسط؟<input name="installmentCount" type="number" min="1" max="600" required value={installmentCount} onChange={(event) => setInstallmentCount(Math.max(1, Number(event.target.value) || 1))} /></label>
+      <JalaliDatePicker name="firstDueDate" label="اولین قسط کیه؟" required initialValue={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} />
+      {financedAmount > 0 && installmentCount > 0 && <div className="loan-preview personal"><span><small>هر قسط تقریباً</small><strong>{money(baseInstallment)}</strong></span><span><small>قسط آخر</small><strong>{money(lastInstallment)}</strong></span></div>}
+      <details className="advanced-fields loan-advanced"><summary>جزئیات بیشتر <small>اختیاری</small></summary><div>
+        <MoneyInput name="principalAmount" label="اصل وام / قیمت پایه" defaultValue={initialLoan?.principalAmount} placeholder="برای دیدن هزینه اضافه" onValueChange={setPrincipalAmount} />
+        <label>هر چند ماه یک‌بار؟<input name="intervalMonths" type="number" min="1" max="24" required value={intervalMonths} onChange={(event) => setIntervalMonths(Math.max(1, Number(event.target.value) || 1))} /></label>
+        <label>شماره قرارداد <small>(اختیاری)</small><input name="contractNumber" defaultValue={initialLoan?.contractNumber ?? ""} /></label>
+        {financeCost > 0 && <p className="loan-finance-cost">هزینه اضافه نسبت به مبلغ پایه: <b>{money(financeCost)}</b></p>}
+      </div></details>
     </>}
-    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={3} defaultValue={initialLoan?.note ?? ""} placeholder="مثلاً نرخ، شعبه، روش پرداخت یا توضیح قرارداد..." /></label>
-    <p className="form-hint">برنامه اقساط بر اساس تقویم شمسی ساخته می‌شود. اگر روز سررسید در یک ماه وجود نداشته باشد، آخرین روز همان ماه انتخاب می‌شود.</p>
-    <SubmitButton busy={busy} label={initialLoan ? "ذخیره تغییرات قرارداد" : "ساخت برنامه اقساط"} />
+    {scheduleLocked && <input type="hidden" name="contractNumber" value={initialLoan?.contractNumber ?? ""} />}
+    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} defaultValue={initialLoan?.note ?? ""} placeholder="مثلاً شماره پیگیری یا نکته‌ای که باید یادت بمونه" /></label>
+    <p className="form-hint">اگر قسط ماهانه است، همان «هر ۱ ماه» پیش‌فرض را نگه دار. بعد از زدن «پرداخت شد»، سررسید بعدی خودش جلو می‌آید.</p>
+    <SubmitButton busy={busy} label={initialLoan ? "ذخیره" : "ساخت قسط‌ها"} />
   </form>;
 }
 
@@ -860,7 +929,7 @@ function PersonLedgerSheet({ account, onEditEntry }: { account: PersonAccount; o
 
 function ToolsSheet({ onExport, onImport, busy }: { onExport: () => void; onImport: (file: File) => void; busy: boolean }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  return <div><div className="sheet-title"><p>اطلاعات روی همین مرورگر ذخیره می‌شوند</p><h2>پشتیبان و بازیابی</h2></div><div className="tools-list"><button onClick={onExport}><span className="tool-icon"><Icon name="download" /></span><div><strong>دریافت نسخه پشتیبان</strong><small>همه اشخاص، ثبت‌ها، دُنگ‌ها، وام‌ها، چک‌ها، برنامه اقساط و پرداخت‌ها در یک فایل JSON</small></div></button><button disabled={busy} onClick={() => inputRef.current?.click()}><span className="tool-icon"><Icon name="upload" /></span><div><strong>بازیابی نسخه پشتیبان</strong><small>اطلاعات فعلی این دستگاه با فایل انتخاب‌شده جایگزین می‌شود</small></div></button></div><input ref={inputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImport(file); event.currentTarget.value = ""; }} /><p className="backup-warning">نسخه پشتیبان را در جای امن نگه دار. پاک کردن داده‌های مرورگر می‌تواند دفتر محلی را حذف کند.</p></div>;
+  return <div><div className="sheet-title"><p>اطلاعات روی همین مرورگر ذخیره می‌شوند</p><h2>پشتیبان و بازیابی</h2></div><div className="tools-list"><button onClick={onExport}><span className="tool-icon"><Icon name="download" /></span><div><strong>دریافت نسخه پشتیبان</strong><small>همه اشخاص، ثبت‌ها، دُنگ‌ها، وام‌ها، چک‌ها و تاریخچه حرکتشان، برنامه اقساط و پرداخت‌ها در یک فایل JSON</small></div></button><button disabled={busy} onClick={() => inputRef.current?.click()}><span className="tool-icon"><Icon name="upload" /></span><div><strong>بازیابی نسخه پشتیبان</strong><small>اطلاعات فعلی این دستگاه با فایل انتخاب‌شده جایگزین می‌شود</small></div></button></div><input ref={inputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImport(file); event.currentTarget.value = ""; }} /><p className="backup-warning">نسخه پشتیبان را در جای امن نگه دار. پاک کردن داده‌های مرورگر می‌تواند دفتر محلی را حذف کند.</p></div>;
 }
 
 function MoneyInput({ name, label, required = false, defaultValue, placeholder, onValueChange }: { name: string; label: string; required?: boolean; defaultValue?: number; placeholder?: string; onValueChange?: (value: number) => void }) {
