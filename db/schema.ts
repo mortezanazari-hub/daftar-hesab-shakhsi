@@ -33,7 +33,7 @@ export const groupMembers = sqliteTable("group_members", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   groupId: integer("group_id").notNull().references(() => expenseGroups.id),
   personId: integer("person_id").notNull().references(() => persons.id),
-  shareWeight: integer("share_weight").notNull().default(1),
+  shareWeight: integer("share_weight").notNull().default(0),
 }, (table) => [
   uniqueIndex("idx_group_members_unique").on(table.groupId, table.personId),
 ]);

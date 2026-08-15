@@ -44,7 +44,7 @@ export function ensureSchema(): Promise<void> {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         group_id INTEGER NOT NULL REFERENCES expense_groups(id),
         person_id INTEGER NOT NULL REFERENCES persons(id),
-        share_weight INTEGER NOT NULL DEFAULT 1
+        share_weight INTEGER NOT NULL DEFAULT 0
       )`),
       db.prepare(`CREATE TABLE IF NOT EXISTS expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
