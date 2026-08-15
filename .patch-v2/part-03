@@ -1,0 +1,64 @@
+"><p>اعضا و سهم هر نفر را مشخص کن</p><h2>گروه دُنگی جدید</h2></div>
++  const [candidateId, setCandidateId] = useState("");
++  const selectedIds = new Set(Object.keys(values).map(Number));
++  const selectedPeople = persons.filter((person) => selectedIds.has(person.id));
++  const availablePeople = persons.filter((person) => !selectedIds.has(person.id));
++
++  function addMember() {
++    const personId = Number(candidateId);
++    if (!personId) return;
++    setValues({ ...values, [personId]: 0 });
++    setCandidateId("");
++  }
++
++  function removeMember(personId: number) {
++    const next = { ...values };
++    delete next[personId];
++    setValues(next);
++  }
++
++  return <form onSubmit={onSubmit}><div className="sheet-title"><p>فقط افرادی را که واقعاً عضو این دُنگ هستند اضافه کن</p><h2>گروه دُنگی جدید</h2></div>
+     <label>نام گروه<input name="name" required autoFocus placeholder="مثلاً سفر شمال" /></label>
+-    <div className="member-picker-title"><strong>اعضا و ضریب سهم</strong><button type="button" onClick={onNeedPerson}>+ شخص جدید</button></div>
+-    <div className="member-picker">{persons.map((person) => {
+-      const selected = Boolean(values[person.id]);
+-      return <div className={selected ? "selected" : ""} key={person.id}><button type="button" onClick={() => setValues({ ...values, [person.id]: selected && !person.isSelf ? 0 : 1 })} disabled={person.isSelf}><span>{selected ? "✓" : "+"}</span><strong>{person.name}</strong>{person.isSelf && <small>همیشه عضو</small>}</button>{selected && <label>سهم<input aria-label={`سهم ${person.name}`} type="number" min="1" max="100" value={values[person.id]} onChange={(event) => setValues({ ...values, [person.id]: Math.max(1, Number(event.target.value)) })} /></label>}</div>;
+-    })}</div>
+-    <p className="form-hint">مثال: سهم ۲ یعنی هزینه این فرد دو برابر کسی است که سهم ۱ دارد.</p>
++    <div className="member-picker-title"><strong>اعضای گروه</strong><button type="button" onClick={onNeedPerson}><Icon name="user-plus" size={15} /> شخص جدید</button></div>
++    <div className="member-add-row">
++      <select aria-label="انتخاب عضو جدید" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}><option value="">انتخاب شخص برای افزودن</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select>
++      <button type="button" onClick={addMember} disabled={!candidateId}>+ افزودن عضو</button>
++    </div>
++    {selectedPeople.length ? <div className="member-picker selected-members">{selectedPeople.map((person) => <div className="selected" key={person.id}>
++      <div className="member-identity"><span><Icon name="user" size={14} /></span><strong>{person.name}</strong>{person.isSelf && <small>حساب من</small>}</div>
++      <label>سهم<input aria-label={`سهم ${person.name}`} type="number" min="0" max="100" value={values[person.id]} onChange={(event) => setValues({ ...values, [person.id]: Math.max(0, Number(event.target.value) || 0) })} /></label>
++      <button className="remove-member" type="button" onClick={() => removeMember(person.id)} aria-label={`حذف ${person.name} از گروه`}><Icon name="trash" size={14} /></button>
++    </div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
++    <p className="form-hint">سهم هر عضو به‌صورت پیش‌فرض صفر است و صفر هم مجاز است. هنگام ثبت خرید باید سهم حداقل یک عضو بیشتر از صفر باشد.</p>
+     <SubmitButton busy={busy} label="ساخت گروه" />
+   </form>;
+ }
+ 
+ function ExpenseForm({ groups, selectedGroup, onGroupChange, onSubmit, onNeedGroup, busy }: { groups: Group[]; selectedGroup?: Group; onGroupChange: (id: number) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedGroup: () => void; busy: boolean }) {
+-  if (!groups.length) return <div className="form-empty"><span className="quick-icon blue">د</span><h2>اول یک گروه بساز</h2><p>برای ثبت خرید مشترک، اعضا و سهم‌ها باید مشخص باشند.</p><button className="submit-button" onClick={onNeedGroup}>ساخت گروه دُنگی</button></div>;
++  if (!groups.length) return <div className="form-empty"><span className="quick-icon blue"><Icon name="users" /></span><h2>اول یک گروه بساز</h2><p>برای ثبت خرید مشترک، اعضا و سهم‌ها باید مشخص باشند.</p><button className="submit-button" onClick={onNeedGroup}>ساخت گروه دُنگی</button></div>;
+   return <form onSubmit={onSubmit}><div className="sheet-title"><p>هزینه بین اعضا طبق سهم تقسیم می‌شود</p><h2>خرید مشترک</h2></div>
+     <label>گروه<select name="groupId" value={selectedGroup?.id ?? ""} onChange={(event) => onGroupChange(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+     <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue=""><option value="" disabled>انتخاب پرداخت‌کننده</option>{selectedGroup?.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+@@ -389,7 +434,7 @@
+     <span className="date-label">{label} {optional && <small>(اختیاری)</small>}</span>
+     <div className="date-input-wrap">
+       <input className="jalali-input" name={name} value={value} readOnly required={required} placeholder="انتخاب تاریخ" onClick={() => setOpen((current) => !current)} aria-haspopup="dialog" aria-expanded={open} />
+-      <button type="button" className="calendar-trigger" onClick={() => setOpen((current) => !current)} aria-label={`باز کردن انتخاب‌گر ${label}`}>ت</button>
++      <button type="button" className="calendar-trigger" onClick={() => setOpen((current) => !current)} aria-label={`باز کردن انتخاب‌گر ${label}`}><Icon name="calendar" size={16} /></button>
+     </div>
+     {open && <div className="jalali-calendar" role="dialog" aria-label={label}>
+       <div className="calendar-head">
+diff -ruN orig_norm/app/globals.css new_norm/app/globals.css
+--- orig_norm/app/globals.css	2026-08-15 11:57:32.723411230 +0000
++++ new_norm/app/globals.css	2026-08-15 11:57:32.724699716 +0000
+@@ -113,7 +113,24 @@
+ .group-card-head { display: flex; justify-content: space-between; align-items: center; }.group-title { display: flex; gap: 10px; align-items: center; }.group-title h3 { margin: 0 0 5px; font-size: 14px; }.group-title p { margin: 0; color: var(--muted); font-size: 9px; }.group-card-head > button { border: 0; border-radius: 10px; padding: 7px 9px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 800; cursor: pointer; }
+ .balances-list { margin-top: 15px; border-top: 1px solid #eae5dc; }.balances-list > div { min-height: 49px; display: grid; grid-template-columns: 30px 1fr auto; grid-template-rows: auto auto; gap: 2px 8px; align-items: center; border-bottom: 1px solid #eeeae2; }.mini-avatar { grid-row: 1 / 3; width: 29px; height: 29px; display: grid; place-items: center; border-radius: 10px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 900; }.balances-list strong { font-size: 10px; }.balances-list small { grid-column: 2; color: var(--muted); font-size: 8px; }.balances-list b { grid-column: 3; grid-row: 1 / 3; font-size: 9px; direction: ltr; }
+ .settlement-box { margin-top: 13px; padding: 12px; border-radius: 15px;
