@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v7/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v8/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -226,4 +226,13 @@ test("uses plus and minus steppers for dong shares while keeping direct numeric 
   assert.match(app, /<ShareStepper label=\{`سهم خرید \$\{member\.name\}`\}/);
   assert.match(css, /\.share-stepper/);
   assert.match(css, /\.participant-share/);
+});
+
+
+test("uses plus and minus steppers for small counting fields", async () => {
+  const app = await readFile(new URL("app/FinanceApp.tsx", root), "utf8");
+  assert.match(app, /function CountStepper/);
+  assert.match(app, /name="installmentCount" label="تعداد اقساط" min=\{1\} max=\{600\}/);
+  assert.match(app, /name="intervalMonths" label="فاصله اقساط به ماه" min=\{1\} max=\{24\}/);
+  assert.match(app, /className="share-stepper number-stepper"/);
 });
