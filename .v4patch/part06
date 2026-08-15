@@ -1,0 +1,88 @@
+objectStore("groups").delete(groupId);
++    for (const member of members.filter((member) => member.groupId === groupId)) transaction.objectStore("members").delete(member.id);
++    for (const expense of groupExpenses) transaction.objectStore("expenses").delete(expense.id);
++    for (const share of shares.filter((share) => expenseIds.has(share.expenseId))) transaction.objectStore("shares").delete(share.id);
++    for (const settlement of settlements.filter((settlement) => settlement.groupId === groupId)) transaction.objectStore("settlements").delete(settlement.id);
+     await transactionDone(transaction);
+     return;
+   }
+@@ -468,11 +526,14 @@
+     const amount = positiveInteger(payload.amount, "مبلغ");
+     const title = cleanText(payload.title, 100);
+     if (!title) throw new Error("عنوان خرید را وارد کنید.");
+-    const members = await getGroupMembers(db, groupId);
+-    if (!members.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو این گروه نیست.");
+-    const weights = splitWeightsForGroup(payload, members);
++    const activeMembers = await getGroupMembers(db, groupId);
++    const oldShares = id ? (await all<StoredShare & { id: number }>(db, "shares")).filter((share) => share.expenseId === id) : [];
++    const historicalIds = new Set(oldShares.map((share) => share.personId));
++    const allMembers = await getAllGroupMembers(db, groupId);
++    const allowedMembers = id ? allMembers.filter((member) => member.active !== false || historicalIds.has(member.personId)) : activeMembers;
++    if (!allowedMembers.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو فعال گروه یا از طرف‌های همین خرید نیست.");
++    const weights = splitWeightsForGroup(payload, allowedMembers);
+     const allocations = allocateExpenseShares(weights, amount);
+-    const oldShares = id ? (await all<StoredShare & { id: number }>(db, "shares")).filter((share) => share.expenseId === id) : [];
+     const transaction = db.transaction(["expenses", "shares"], "readwrite");
+     const expenseStore = transaction.objectStore("expenses");
+     const shareStore = transaction.objectStore("shares");
+@@ -505,7 +566,7 @@
+     const toPersonId = positiveInteger(payload.toPersonId, "دریافت‌کننده");
+     if (fromPersonId === toPersonId) throw new Error("پرداخت‌کننده و دریافت‌کننده نمی‌توانند یک نفر باشند.");
+     const amount = positiveInteger(payload.amount, "مبلغ تسویه");
+-    const members = await getGroupMembers(db, groupId);
++    const members = await getAllGroupMembers(db, groupId);
+     const memberIds = new Set(members.map((member) => member.personId));
+     if (!memberIds.has(fromPersonId) || !memberIds.has(toPersonId)) throw new Error("هر دو طرف تسویه باید عضو این گروه باشند.");
+     const transaction = db.transaction("settlements", "readwrite");
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -268,3 +268,12 @@
+   .participant { grid-template-columns: 1fr 82px; }
+   .settlement-history article { grid-template-columns: 28px 1fr auto; }.settlement-history article > button { grid-column: 3; }
+ }
++
++/* Group management controls */
++.group-head-actions .group-icon-action { width: 30px; min-width: 30px; padding: 7px; justify-content: center; }
++.group-head-actions .group-icon-action.danger { color: #9c4a3a; background: var(--coral-soft); }
++.group-head-actions .group-icon-action.danger:hover { background: #efd0c8; }
++.group-head-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 178px; }
++@media (max-width: 380px) {
++  .group-head-actions { flex-direction: row; max-width: 146px; }
++}
+--- a/tests/rendered-html.test.mjs
++++ b/tests/rendered-html.test.mjs
+@@ -51,7 +51,7 @@
+     readFile(new URL("db/schema.ts", root), "utf8"),
+     readFile(new URL("db/index.ts", root), "utf8"),
+   ]);
+-  assert.match(app, /setGroupMembers\(\{\}\)/);
++  assert.match(app, /setGroupMembers\(Object\.fromEntries/);
+   assert.match(app, /\[personId\]: 0/);
+   assert.match(app, /سهم پیش‌فرض/);
+   assert.match(app, /شرکت‌کنندگان این خرید/);
+@@ -105,3 +105,21 @@
+   assert.match(app, /ثبت تسویه واقعی/);
+   assert.match(app, /جست‌وجوی شخص، عنوان یا یادداشت/);
+ });
++
++
++test("dong groups can be edited and deleted without erasing historical member records", async () => {
++  const [app, localDb] = await Promise.all([
++    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
++    readFile(new URL("app/local-db.ts", root), "utf8"),
++  ]);
++  assert.match(app, /editingGroupId/);
++  assert.match(app, /operation: editingGroup \? "update_group" : "add_group"/);
++  assert.match(app, /operation: "delete_group"/);
++  assert.match(app, /ویرایش گروه دُنگی/);
++  assert.match(app, /ذخیره تغییرات گروه/);
++  assert.match(app, /عضو سابق/);
++  assert.match(localDb, /operation === "update_group"/);
++  assert.match(localDb, /active: nextWeight !== undefined/);
++  assert.match(localDb, /operation === "delete_group"/);
++  assert.match(localDb, /getAllGroupMembers/);
++});
+--- a/README.md
++++ b/README.md
+@@ -28,3 +28,5 @@
+ 
