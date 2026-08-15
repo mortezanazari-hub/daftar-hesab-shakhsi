@@ -1,8 +1,0 @@
-{14} /></button></div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
-     <p className="form-hint">{initialGroup ? "حذف یک عضو از این فهرست فقط عضویت فعال او را برای خریدهای آینده پایان می‌دهد؛ سابقه خریدها و تسویه‌های قبلی حفظ می‌شود. اگر مانده‌ای از گذشته باز باشد، همچنان در محاسبات گروه دیده خواهد شد." : "سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آنده است؛ در هر خرید می‌توانی افراد و وزن سهم را جداگانه تغییر بدهی."}</p>
-     <SubmitButton busy={busy} label={initialGroup ? "ذخیره تغییرات گروه" : "ساخت گروه"} />
-   </form>;
-@@ -897,7 +974,7 @@ function ExpenseForm({ groups, selectedGroup, initialExpense, onGroupChange, onS
-     <label>بابت چه چیزی؟<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder="مثلاً خرید سوپرمارکت" /></label>
-     <MoneyInput name="amount" label="مبلغ کل (تومان)" required defaultValue={initialExpense?.amount} placeholder="مثلاً ۱٬۸۵۰٬۰۰۰" />
-     <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday={!initialExpense} required initialValue={initialExp

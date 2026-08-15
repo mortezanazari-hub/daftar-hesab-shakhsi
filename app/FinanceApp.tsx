@@ -25,9 +25,9 @@ type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | 
 
 type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
 type DueItem =
-  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; entry: Entry }
-  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment }
-  | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; check: CheckRecord };
+  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; entry: Entry }
+  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; loan: Loan; installment: LoanInstallment }
+  | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; check: CheckRecord };
 
 const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
 const checkStatusLabel: Record<CheckRecord["status"], string> = { open: "در جریان", cleared: "پاس شده", bounced: "برگشت خورده", cancelled: "باطل شده", returned: "برگشته" };
@@ -106,6 +106,8 @@ export function FinanceApp() {
   const [loanFilter, setLoanFilter] = useState<"active" | "settled" | "all">("active");
   const [checkSearch, setCheckSearch] = useState("");
   const [checkFilter, setCheckFilter] = useState<"active" | "received" | "issued" | "closed" | "all">("active");
+  const [dueRange, setDueRange] = useState<"current" | "next" | "all">("current");
+  const [hideCompletedDue, setHideCompletedDue] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -124,7 +126,6 @@ export function FinanceApp() {
   }, []);
 
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
-  const openEntries = data?.entries.filter((entry) => entry.status === "open") ?? [];
   const linkedReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
   const linkedDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
   const unlinkedCheckReceivable = data?.checks.filter((check) => check.financialOpen && check.countInBalance && !check.relatedPersonId && check.direction === "received").reduce((sum, check) => sum + check.amount, 0) ?? 0;
@@ -145,11 +146,58 @@ export function FinanceApp() {
   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
   const today = todayIso();
   const dueItems: DueItem[] = [
-    ...openEntries.filter((entry) => entry.dueDate).map((entry) => ({ id: `entry-${entry.id}`, source: "entry" as const, date: entry.dueDate as string, title: entry.title, detail: `${entry.personName} • ${entry.kind === "check" ? "چک قدیمی" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`, amount: entry.amount, overdue: Boolean(entry.dueDate && entry.dueDate < today), entry })),
-    ...(data?.loans ?? []).flatMap((loan) => loan.installments.filter((installment) => installment.remainingAmount > 0).map((installment) => ({ id: `loan-${loan.id}-${installment.id}`, source: "loan" as const, date: installment.dueDate, title: loan.title, detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`, amount: installment.remainingAmount, overdue: installment.overdue, loan, installment }))),
-    ...(data?.checks ?? []).filter((check) => check.financialOpen).map((check) => ({ id: `check-${check.id}`, source: "check" as const, date: check.dueDate, title: `${check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • ${check.purpose}`, detail: `${check.counterpartyName} • ${check.bankName}${check.sayadId ? ` • صیاد ${check.sayadId.slice(-6)}` : ""}`, amount: check.amount, overdue: check.overdue, check })),
-  ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  const upcoming = dueItems;
+    ...(data?.entries ?? []).filter((entry) => entry.dueDate).map((entry) => ({
+      id: `entry-${entry.id}`,
+      source: "entry" as const,
+      date: entry.dueDate as string,
+      title: entry.title,
+      detail: `${entry.personName} • ${entry.kind === "check" ? "چک قدیمی" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`,
+      amount: entry.amount,
+      overdue: entry.status === "open" && Boolean(entry.dueDate && entry.dueDate < today),
+      completed: entry.status === "paid",
+      completionLabel: "تسویه شد",
+      entry,
+    })),
+    ...(data?.loans ?? []).flatMap((loan) => loan.installments.map((installment) => ({
+      id: `loan-${loan.id}-${installment.id}`,
+      source: "loan" as const,
+      date: installment.dueDate,
+      title: loan.title,
+      detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`,
+      amount: installment.status === "paid" ? installment.amount : installment.remainingAmount,
+      overdue: installment.status !== "paid" && installment.overdue,
+      completed: installment.status === "paid",
+      completionLabel: "پرداخت شد",
+      loan,
+      installment,
+    }))),
+    ...(data?.checks ?? []).map((check) => ({
+      id: `check-${check.id}`,
+      source: "check" as const,
+      date: check.dueDate,
+      title: `${check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • ${check.purpose}`,
+      detail: `${check.counterpartyName} • ${check.bankName}${check.sayadId ? ` • صیاد ${check.sayadId.slice(-6)}` : ""}`,
+      amount: check.amount,
+      overdue: check.financialOpen && check.overdue,
+      completed: !check.financialOpen,
+      completionLabel: check.status === "cleared" ? (check.direction === "received" ? "وصول شد" : "پاس شد") : check.status === "cancelled" ? "باطل شد" : check.status === "returned" ? "برگشت داده شد" : "بسته شد",
+      check,
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || Number(a.completed) - Number(b.completed) || a.id.localeCompare(b.id));
+  const upcoming = dueItems.filter((item) => !item.completed);
+  const currentJalaliMonth = jalaliTodayParts();
+  const nextJalaliMonth = currentJalaliMonth.jm === 12
+    ? { jy: currentJalaliMonth.jy + 1, jm: 1 }
+    : { jy: currentJalaliMonth.jy, jm: currentJalaliMonth.jm + 1 };
+  const currentMonthKey = `${currentJalaliMonth.jy}/${String(currentJalaliMonth.jm).padStart(2, "0")}`;
+  const nextMonthKey = `${nextJalaliMonth.jy}/${String(nextJalaliMonth.jm).padStart(2, "0")}`;
+  const rangeDueItems = dueItems.filter((item) => {
+    if (dueRange === "all") return true;
+    const monthKey = normalizeDigits(isoToJalaliInput(item.date)).slice(0, 7);
+    return monthKey === (dueRange === "current" ? currentMonthKey : nextMonthKey);
+  });
+  const completedDueCount = rangeDueItems.filter((item) => item.completed).length;
+  const calendarDueItems = hideCompletedDue ? rangeDueItems.filter((item) => !item.completed) : rangeDueItems;
 
   const normalizedLedgerSearch = ledgerSearch.trim().toLocaleLowerCase("fa");
   const filteredAccounts = (data?.accounts ?? []).filter((account) => !normalizedLedgerSearch || `${account.name} ${account.phone}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch));
@@ -570,10 +618,21 @@ export function FinanceApp() {
 
           {tab === "calendar" && (
             <section className="page">
-              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>چک‌های من</button></div>
+              <div className="page-heading"><div><p className="eyebrow">مثل یک To‑Do مالی</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openChecks}>چک‌های من</button></div>
+              <div className="due-toolbar">
+                <div className="filter-row due-range-filter">
+                  <button className={dueRange === "current" ? "active" : ""} onClick={() => setDueRange("current")}><strong>این ماه</strong><small>{jalaliMonthName(currentJalaliMonth.jm)}</small></button>
+                  <button className={dueRange === "next" ? "active" : ""} onClick={() => setDueRange("next")}><strong>ماه بعد</strong><small>{jalaliMonthName(nextJalaliMonth.jm)}</small></button>
+                  <button className={dueRange === "all" ? "active" : ""} onClick={() => setDueRange("all")}><strong>همه</strong><small>کل سررسیدها</small></button>
+                </div>
+                <button className={`hide-completed-due ${hideCompletedDue ? "active" : ""}`} onClick={() => setHideCompletedDue((current) => !current)}>
+                  <span>{hideCompletedDue ? "نمایش انجام‌شده‌ها" : "مخفی کردن انجام‌شده‌ها"}</span>
+                  <b>{number.format(completedDueCount)}</b>
+                </button>
+              </div>
               <div className="timeline">
-                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
-                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط بانکی/فروشگاهی اینجا یکجا دیده می‌شود." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
+                {calendarDueItems.map((item) => <div className={`timeline-row ${item.completed ? "completed" : ""}`} key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
+                {!calendarDueItems.length && <EmptyState icon="calendar" title={hideCompletedDue && completedDueCount ? "همه کارهای این بازه انجام شده" : "برای این بازه سررسیدی نداری"} detail={hideCompletedDue && completedDueCount ? "برای دیدن موارد پرداخت‌شده و پاس‌شده، نمایش انجام‌شده‌ها را روشن کن." : "فیلتر ماه را عوض کن یا یک قسط، چک یا بدهی تاریخ‌دار ثبت کن."} action={dueRange === "current" ? "دیدن ماه بعد" : "نمایش همه"} onAction={() => setDueRange(dueRange === "current" ? "next" : "all")} />}
               </div>
             </section>
           )}
@@ -630,10 +689,19 @@ function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entr
 function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPaid: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
   const icon: IconName = item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.source === "check" ? "check" : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt";
   const positive = item.source === "check" ? item.check.direction === "received" : item.source === "entry" && item.entry.direction === "receivable";
-  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
-    <span className={`due-source ${item.source}`}><Icon name={icon} size={16} /></span>
+  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}>
+    <span className={`due-source ${item.source}`}><Icon name={item.completed ? "calendar-check" : icon} size={16} /></span>
     <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
-    <div className="due-amount"><strong className={positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <span className="due-entry-actions"><button className="quick-paid" onClick={onLoanPaid}>پرداخت شد</button><button onClick={onLoanPayment} aria-label="ثبت پرداخت جزئی یا تاریخ دیگر"><Icon name="edit" size={12} /></button></span> : item.source === "check" ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
+    <div className="due-amount">
+      <strong className={item.completed ? "text-muted" : positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>
+      {item.completed
+        ? <span className="due-completed-label"><Icon name="calendar-check" size={12} /> {item.completionLabel}</span>
+        : item.source === "loan"
+          ? <span className="due-entry-actions"><button className="quick-paid" onClick={onLoanPaid}>پرداخت شد</button><button onClick={onLoanPayment} aria-label="ثبت پرداخت جزئی یا تاریخ دیگر"><Icon name="edit" size={12} /></button></span>
+          : item.source === "check"
+            ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span>
+            : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}
+    </div>
   </article>;
 }
 
@@ -854,6 +922,15 @@ function LoanPaymentForm({ loan, installment, onSubmit, busy }: { loan: Loan; in
   </form>;
 }
 
+function ShareStepper({ value, onChange, label }: { value: number; onChange: (value: number) => void; label: string }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  return <div className="share-stepper">
+    <button type="button" onClick={() => onChange(Math.max(0, safeValue - 1))} disabled={safeValue <= 0} aria-label={`کم کردن ${label}`}>−</button>
+    <input aria-label={label} type="number" min="0" max="100" value={safeValue} onChange={(event) => onChange(Math.max(0, Math.min(100, Number(event.target.value) || 0)))} />
+    <button type="button" onClick={() => onChange(Math.min(100, safeValue + 1))} disabled={safeValue >= 100} aria-label={`زیاد کردن ${label}`}>+</button>
+  </div>;
+}
+
 function GroupForm({ persons, values, setValues, initialGroup, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; initialGroup?: Group; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
   const [candidateId, setCandidateId] = useState("");
   const selectedIds = new Set(Object.keys(values).map(Number));
@@ -877,7 +954,7 @@ function GroupForm({ persons, values, setValues, initialGroup, onSubmit, onNeedP
     <label>نام گروه<input name="name" required autoFocus defaultValue={initialGroup?.name ?? ""} placeholder="مثلاً سفر شمال" /></label>
     <div className="member-picker-title"><strong>اعضای گروه</strong><button type="button" onClick={onNeedPerson}><Icon name="user-plus" size={15} /> شخص جدید</button></div>
     <div className="member-add-row"><select aria-label="انتخاب عضو جدید" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}><option value="">انتخاب شخص برای افزودن</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><button type="button" onClick={addMember} disabled={!candidateId}>+ افزودن عضو</button></div>
-    {selectedPeople.length ? <div className="member-picker selected-members">{selectedPeople.map((person) => <div className="selected" key={person.id}><div className="member-identity"><span><Icon name="user" size={14} /></span><strong>{person.name}</strong>{person.isSelf && <small>حساب من</small>}</div><label>سهم پیش‌فرض<input aria-label={`سهم ${person.name}`} type="number" min="0" max="100" value={values[person.id]} onChange={(event) => setValues({ ...values, [person.id]: Math.max(0, Number(event.target.value) || 0) })} /></label><button className="remove-member" type="button" onClick={() => removeMember(person.id)} aria-label={`حذف ${person.name} از گروه`}><Icon name="trash" size={14} /></button></div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
+    {selectedPeople.length ? <div className="member-picker selected-members">{selectedPeople.map((person) => <div className="selected" key={person.id}><div className="member-identity"><span><Icon name="user" size={14} /></span><strong>{person.name}</strong>{person.isSelf && <small>حساب من</small>}</div><div className="share-stepper-field"><span>سهم پیش‌فرض</span><ShareStepper label={`سهم ${person.name}`} value={values[person.id]} onChange={(value) => setValues({ ...values, [person.id]: value })} /></div><button className="remove-member" type="button" onClick={() => removeMember(person.id)} aria-label={`حذف ${person.name} از گروه`}><Icon name="trash" size={14} /></button></div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
     <p className="form-hint">{initialGroup ? "حذف یک عضو از این فهرست فقط عضویت فعال او را برای خریدهای آینده پایان می‌دهد؛ سابقه خریدها و تسویه‌های قبلی حفظ می‌شود. اگر مانده‌ای از گذشته باز باشد، همچنان در محاسبات گروه دیده خواهد شد." : "سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آنده است؛ در هر خرید می‌توانی افراد و وزن سهم را جداگانه تغییر بدهی."}</p>
     <SubmitButton busy={busy} label={initialGroup ? "ذخیره تغییرات گروه" : "ساخت گروه"} />
   </form>;
@@ -897,7 +974,7 @@ function ExpenseForm({ groups, selectedGroup, initialExpense, onGroupChange, onS
     <label>بابت چه چیزی؟<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder="مثلاً خرید سوپرمارکت" /></label>
     <MoneyInput name="amount" label="مبلغ کل (تومان)" required defaultValue={initialExpense?.amount} placeholder="مثلاً ۱٬۸۵۰٬۰۰۰" />
     <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday={!initialExpense} required initialValue={initialExpense ? isoToJalaliInput(initialExpense.expenseDate) : ""} />
-    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><label>وزن سهم<input type="number" min="0" max="100" value={weight} onChange={(event) => setWeights({ ...weights, [member.personId]: Math.max(0, Number(event.target.value) || 0) })} /></label></div>; })}</div>}
+    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><div className="participant-share"><span>سهم</span><ShareStepper label={`سهم خرید ${member.name}`} value={weight} onChange={(value) => setWeights({ ...weights, [member.personId]: value })} /></div></div>; })}</div>}
     <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
     <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
   </form>;

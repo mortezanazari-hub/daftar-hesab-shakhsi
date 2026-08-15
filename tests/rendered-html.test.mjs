@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v6/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v7/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -192,4 +192,38 @@ test("lets monthly installment reminders be completed directly from due dates", 
   assert.match(app, /onLoanPaid/);
   assert.match(localDb, /operation === "add_loan_payment"/);
   assert.match(jalali, /buildJalaliInstallmentDates/);
+});
+
+
+test("filters due dates by Jalali month and keeps completed items visible like a todo list", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /useState<"current" \| "next" \| "all">\("current"\)/);
+  assert.match(app, /jalaliMonthName\(currentJalaliMonth\.jm\)/);
+  assert.match(app, /jalaliMonthName\(nextJalaliMonth\.jm\)/);
+  assert.match(app, /مخفی کردن انجام‌شده‌ها/);
+  assert.match(app, /نمایش انجام‌شده‌ها/);
+  assert.match(app, /completed: installment\.status === "paid"/);
+  assert.match(app, /completed: !check\.financialOpen/);
+  assert.match(app, /due-completed-label/);
+  assert.match(css, /timeline-row\.completed/);
+  assert.match(css, /text-decoration: line-through/);
+  assert.match(css, /hide-completed-due/);
+});
+
+test("uses plus and minus steppers for dong shares while keeping direct numeric editing", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /function ShareStepper/);
+  assert.match(app, /کم کردن \$\{label\}/);
+  assert.match(app, /زیاد کردن \$\{label\}/);
+  assert.match(app, /type="number" min="0" max="100"/);
+  assert.match(app, /<ShareStepper label=\{`سهم \$\{person\.name\}`\}/);
+  assert.match(app, /<ShareStepper label=\{`سهم خرید \$\{member\.name\}`\}/);
+  assert.match(css, /\.share-stepper/);
+  assert.match(css, /\.participant-share/);
 });
