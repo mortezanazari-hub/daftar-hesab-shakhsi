@@ -1,5 +1,6 @@
 const CACHE = "daftar-hesab-offline-v2";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+const ROOT = new URL("./", self.registration.scope).pathname;
+const APP_SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icon-192.png`, `${ROOT}icon-512.png`];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
@@ -19,10 +20,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          if (response.ok) caches.open(CACHE).then((cache) => cache.put("/", response.clone()));
+          if (response.ok) caches.open(CACHE).then((cache) => cache.put(ROOT, response.clone()));
           return response;
         })
-        .catch(() => caches.match("/").then((cached) => cached || Response.error())),
+        .catch(() => caches.match(ROOT).then((cached) => cached || Response.error())),
     );
     return;
   }

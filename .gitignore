@@ -41,4 +41,5 @@ next-env.d.ts
 /static-dist/
 /.wrangler/
 /outputs/
+/.gh-config/
 /work/

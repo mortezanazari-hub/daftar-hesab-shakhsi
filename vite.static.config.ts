@@ -10,6 +10,7 @@ export default defineConfig({
     {
       name: "static-pwa-manifest",
       generateBundle() {
+        this.emitFile({ type: "asset", fileName: ".nojekyll", source: "" });
         this.emitFile({
           type: "asset",
           fileName: "manifest.webmanifest",

@@ -44,7 +44,7 @@ export function FinanceApp() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (location.hostname !== "localhost" && "serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+    if (location.hostname !== "localhost" && "serviceWorker" in navigator) void navigator.serviceWorker.register("./sw.js");
   }, []);
 
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
