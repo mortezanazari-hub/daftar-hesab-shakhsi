@@ -1,0 +1,44 @@
+><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><label>وزن سهم<input type="number" min="0" max="100" value={weight} onChange={(event) => setWeights({ ...weights, [member.personId]: Math.max(0, Number(event.target.value) || 0) })} /></label></div>; })}</div>}
+     <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
+     <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
+   </form>;
+@@ -520,8 +531,8 @@
+   if (!group) return <div className="form-empty"><Icon name="settlement" size={28} /><h2>گروه پیدا نشد</h2></div>;
+   return <form onSubmit={onSubmit}><div className="sheet-title"><p>پرداخت واقعی را ثبت کن تا مانده‌ها کم شود</p><h2>ثبت تسویه • {group.name}</h2></div>
+     <input type="hidden" name="groupId" value={group.id} />
+-    <label>چه کسی پرداخت کرد؟<select name="fromPersonId" required defaultValue={draft.fromPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{group.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+-    <label>چه کسی دریافت کرد؟<select name="toPersonId" required defaultValue={draft.toPersonId ?? ""}><option value="" disabled>انتخاب دریافت‌کننده</option>{group.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
++    <label>چه کسی پرداخت کرد؟<select name="fromPersonId" required defaultValue={draft.fromPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{group.balances.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
++    <label>چه کسی دریافت کرد؟<select name="toPersonId" required defaultValue={draft.toPersonId ?? ""}><option value="" disabled>انتخاب دریافت‌کننده</option>{group.balances.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+     <MoneyInput name="amount" label="مبلغ تسویه (تومان)" required defaultValue={draft.amount} placeholder="مثلاً ۵۰۰٬۰۰۰" />
+     <JalaliDatePicker name="settlementDate" label="تاریخ تسویه شمسی" defaultToday required />
+     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً کارت‌به‌کارت" /></label>
+--- a/app/local-db.ts
++++ b/app/local-db.ts
+@@ -42,7 +42,7 @@
+ type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
+ type StoredEntry = Omit<Entry, "id" | "personName"> & { id?: number };
+ type StoredGroup = { id?: number; name: string; createdAt: string };
+-type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number };
++type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
+ type StoredExpense = Omit<Expense, "id" | "payerName" | "shares"> & { id?: number; groupId: number; createdAt: string };
+ type StoredShare = { id?: number; expenseId: number; personId: number; amount: number; weight?: number };
+ type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string };
+@@ -302,7 +302,8 @@
+   const groups = storedGroups
+     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+     .map((group) => {
+-      const members = storedMembers.filter((member) => member.groupId === group.id).map((member) => ({ personId: member.personId, name: names.get(member.personId) ?? "نامشخص", shareWeight: member.shareWeight }));
++      const storedGroupMembers = storedMembers.filter((member) => member.groupId === group.id);
++      const members = storedGroupMembers.filter((member) => member.active !== false).map((member) => ({ personId: member.personId, name: names.get(member.personId) ?? "نامشخص", shareWeight: member.shareWeight }));
+       const groupExpenses = storedExpenses.filter((expense) => expense.groupId === group.id);
+       const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
+       const shares = storedShares.filter((share) => expenseIds.has(share.expenseId));
+@@ -334,19 +335,23 @@
+           createdAt: settlement.createdAt,
+         }))
+         .sort((a, b) => b.settlementDate.localeCompare(a.settlementDate) || b.id - a.id);
+-      const balances = members.map((member) => {
++      const balances = storedGroupMembers.map((member) => {
+         const paid = expenses.filter((expense) => expense.payerPersonId === member.personId).reduce((sum, expense) => sum + expense.amount, 0);
+         const owed = shares.filter((share) => share.personId === member.personId).reduce((sum, share
