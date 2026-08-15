@@ -1,0 +1,224 @@
+diff --git a/README.md b/README.md
+index 45ef9c0..b380eef 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # دفتر حساب شخصی
+ 
+-دفتر مالی فارسی، آفلاین و mobile-first برای ثبت بدهی، طلب، اقساط، چک‌ها و مدیریت دُنگ‌های مشترک.
++دفتر مالی فارسی، آفلاین و mobile-first برای ثبت بدهی و طلب شخصی، چک‌ها، وام و خرید اقساطی بانکی/فروشگاهی و مدیریت دُنگ‌های مشترک.
+ 
+ ## قابلیت‌های اصلی
+ 
+@@ -12,6 +12,9 @@
+ - ویرایش/حذف ثبت‌های مستقیم و خریدهای دُنگی
+ - جست‌وجو و فیلتر دفتر اشخاص و گروه‌ها
+ - ورودی مبلغ با جداکننده سه‌رقمی خودکار
++- ماژول مستقل وام و خرید اقساطی با طرف حساب بانکی/فروشگاهی، مبلغ کل قرارداد، پیش‌پرداخت، تعداد و فاصله اقساط، تقویم شمسی، مانده و اقساط عقب‌افتاده
++- ثبت پرداخت کامل یا جزئی هر قسط با تاریخچه پرداخت و قفل ایمن زمان‌بندی بعد از شروع پرداخت
++- تجمیع سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط در یک تقویم
+ - خروجی پشتیبان JSON و بازیابی کامل اطلاعات
+ 
+ ## حریم خصوصی و ذخیره اطلاعات
+diff --git a/app/FinanceApp.tsx b/app/FinanceApp.tsx
+index 5c46ca9..879117b 100644
+--- a/app/FinanceApp.tsx
++++ b/app/FinanceApp.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { FormEvent, useCallback, useMemo, useRef, useState, useEffect } from "react";
+-import { isoToJalaliInput, jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
++import { buildJalaliInstallmentDates, isoToJalaliInput, jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
+ import {
+   applyFinanceOperation,
+   exportFinanceBackup,
+@@ -11,19 +11,26 @@ import {
+   type Expense,
+   type FinanceData,
+   type Group,
++  type Loan,
++  type LoanInstallment,
+   type Person,
+   type PersonAccount,
+   type SettlementSuggestion,
+ } from "./local-db";
+ 
+-type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "tools" | null;
+-type Tab = "home" | "ledger" | "groups" | "calendar";
+-type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
++type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "tools" | null;
++type Tab = "home" | "ledger" | "groups" | "loans" | "calendar";
++type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
+ 
+ type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
++type DueItem =
++  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; entry: Entry }
++  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment };
++
++const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
+ 
+ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+-  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
++  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: "app-icon", "data-icon": name, "aria-hidden": true };
+   if (name === "home") return <svg {...common}><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></svg>;
+   if (name === "book") return <svg {...common}><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22z"/><path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z"/></svg>;
+   if (name === "users") return <svg {...common}><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.7 14.2c2.8-.5 4.5 1 4.8 3.8"/></svg>;
+@@ -34,6 +41,8 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+   if (name === "debt") return <svg {...common}><path d="M7 17 17 7M10 7h7v7"/><path d="M5 20h14"/></svg>;
+   if (name === "receivable") return <svg {...common}><path d="M17 7 7 17M7 10v7h7"/><path d="M5 20h14"/></svg>;
+   if (name === "installment") return <svg {...common}><path d="M7 7h11l-2.5-2.5M17 17H6l2.5 2.5"/><path d="M18 7a7 7 0 0 1 1 7M6 17a7 7 0 0 1-1-7"/></svg>;
++  if (name === "bank") return <svg {...common}><path d="m3 9 9-5 9 5"/><path d="M5 10h14M6 10v8M10 10v8M14 10v8M18 10v8M4 18h16M3 21h18"/></svg>;
++  if (name === "store") return <svg {...common}><path d="M4 9h16l-1.5-5h-13z"/><path d="M5 9v11h14V9M8 20v-6h5v6"/><path d="M4 9c0 1.7 1.2 3 2.7 3S9.3 10.7 9.3 9c0 1.7 1.2 3 2.7 3s2.7-1.3 2.7-3c0 1.7 1.2 3 2.7 3S20 10.7 20 9"/></svg>;
+   if (name === "check") return <svg {...common}><path d="M5 3h11l3 3v15H5z"/><path d="M16 3v4h4M8 13l2.2 2.2L16 10"/></svg>;
+   if (name === "edit") return <svg {...common}><path d="M4 20h4l11-11-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>;
+   if (name === "download") return <svg {...common}><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M5 20h14"/></svg>;
+@@ -47,10 +56,12 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+ const entryMeta: Record<string, { label: string; icon: IconName; tone: string }> = {
+   debt: { label: "بدهی", icon: "debt", tone: "coral" },
+   receivable: { label: "طلب", icon: "receivable", tone: "green" },
+-  installment: { label: "قسط", icon: "installment", tone: "amber" },
++  installment: { label: "قسط قدیمی", icon: "installment", tone: "amber" },
+   check: { label: "چک", icon: "check", tone: "violet" },
+ };
+ 
++const quickEntryKinds = ["debt", "receivable", "check"] as const;
++
+ const number = new Intl.NumberFormat("fa-IR");
+ const money = (value: number) => `${number.format(value)} تومان`;
+ const shortMoney = (value: number) => {
+@@ -73,6 +84,9 @@ export function FinanceApp() {
+   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
+   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
++  const [editingLoanId, setEditingLoanId] = useState<number | null>(null);
++  const [paymentLoanId, setPaymentLoanId] = useState<number | null>(null);
++  const [paymentInstallmentId, setPaymentInstallmentId] = useState<number | null>(null);
+   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+   const [settlementDraft, setSettlementDraft] = useState<SettlementDraft | null>(null);
+   const [busy, setBusy] = useState(false);
+@@ -82,6 +96,8 @@ export function FinanceApp() {
+   const [ledgerSearch, setLedgerSearch] = useState("");
+   const [entryFilter, setEntryFilter] = useState<"all" | "open" | "paid">("all");
+   const [groupSearch, setGroupSearch] = useState("");
++  const [loanSearch, setLoanSearch] = useState("");
++  const [loanFilter, setLoanFilter] = useState<"active" | "settled" | "all">("active");
+ 
+   const load = useCallback(async () => {
+     try {
+@@ -102,15 +118,24 @@ export function FinanceApp() {
+   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
+   const openEntries = data?.entries.filter((entry) => entry.status === "open") ?? [];
+   const totalReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
+-  const totalDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
++  const peopleDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
++  const loanDebt = data?.loans.reduce((sum, loan) => sum + loan.remainingAmount, 0) ?? 0;
++  const totalDebt = peopleDebt + loanDebt;
+   const net = totalReceivable - totalDebt;
+   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
+   const editingEntry = data?.entries.find((entry) => entry.id === editingEntryId);
+   const editingExpense = data?.groups.flatMap((group) => group.expenses.map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
+   const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
++  const editingLoan = data?.loans.find((loan) => loan.id === editingLoanId);
++  const paymentLoan = data?.loans.find((loan) => loan.id === paymentLoanId);
++  const paymentInstallment = paymentLoan?.installments.find((installment) => installment.id === paymentInstallmentId);
+   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
+   const today = todayIso();
+-  const upcoming = openEntries.filter((entry) => entry.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
++  const dueItems: DueItem[] = [
++    ...openEntries.filter((entry) => entry.dueDate).map((entry) => ({ id: `entry-${entry.id}`, source: "entry" as const, date: entry.dueDate as string, title: entry.title, detail: `${entry.personName} • ${entry.kind === "check" ? "چک" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`, amount: entry.amount, overdue: Boolean(entry.dueDate && entry.dueDate < today), entry })),
++    ...(data?.loans ?? []).flatMap((loan) => loan.installments.filter((installment) => installment.remainingAmount > 0).map((installment) => ({ id: `loan-${loan.id}-${installment.id}`, source: "loan" as const, date: installment.dueDate, title: loan.title, detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`, amount: installment.remainingAmount, overdue: installment.overdue, loan, installment }))),
++  ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
++  const upcoming = dueItems;
+ 
+   const normalizedLedgerSearch = ledgerSearch.trim().toLocaleLowerCase("fa");
+   const filteredAccounts = (data?.accounts ?? []).filter((account) => !normalizedLedgerSearch || `${account.name} ${account.phone}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch));
+@@ -121,6 +146,12 @@ export function FinanceApp() {
+   });
+   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase("fa");
+   const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${group.expenses.map((expense) => expense.title).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
++  const normalizedLoanSearch = loanSearch.trim().toLocaleLowerCase("fa");
++  const filteredLoans = (data?.loans ?? []).filter((loan) => {
++    if (loanFilter === "active" && loan.remainingAmount === 0) return false;
++    if (loanFilter === "settled" && loan.remainingAmount !== 0) return false;
++    return !normalizedLoanSearch || `${loan.providerName} ${loan.title} ${loan.contractNumber}`.toLocaleLowerCase("fa").includes(normalizedLoanSearch);
++  });
+ 
+   async function post(payload: Record<string, unknown>, { close = true }: { close?: boolean } = {}) {
+     setBusy(true);
+@@ -142,6 +173,22 @@ export function FinanceApp() {
+     setSheet("entry");
+   }
+ 
++  function openLoans() {
++    setSheet(null);
++    setTab("loans");
++  }
++
++  function openLoanForm(loan?: Loan) {
++    setEditingLoanId(loan?.id ?? null);
++    setSheet("loan-form");
++  }
++
++  function openLoanPayment(loan: Loan, installment: LoanInstallment) {
++    setPaymentLoanId(loan.id);
++    setPaymentInstallmentId(installment.id);
++    setSheet("loan-payment");
++  }
++
+   function beginGroup(group?: Group) {
+     setEditingGroupId(group?.id ?? null);
+     setGroupMembers(Object.fromEntries((group?.members ?? []).map((member) => [member.personId, member.shareWeight])));
+@@ -186,6 +233,15 @@ export function FinanceApp() {
+     if (window.confirm("این سابقه تسویه حذف شود؟ مانده گروه دوباره محاسبه خواهد شد.")) void post({ operation: "delete_settlement", id }, { close: false });
+   }
+ 
++  function deleteLoan(loan: Loan) {
++    const confirmed = window.confirm(`«${loan.title}» از ${loan.providerName} حذف شود؟\n\nبرنامه تمام اقساط و سابقه پرداخت‌های این قرارداد را نیز حذف می‌کند.`);
++    if (confirmed) void post({ operation: "delete_loan", id: loan.id }, { close: false });
++  }
++
++  function deleteLoanPayment(id: number) {
++    if (window.confirm("این پرداخت حذف شود؟ مانده قسط و وام دوباره محاسبه خواهد شد.")) void post({ operation: "delete_loan_payment", id }, { close: false });
++  }
++
+   function submitPerson(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     const form = new FormData(event.currentTarget);
+@@ -212,6 +268,41 @@ export function FinanceApp() {
+     });
+   }
+ 
++  function submitLoan(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    const form = new FormData(event.currentTarget);
++    const count = Number(normalizeDigits(String(form.get("installmentCount") ?? "")));
++    const intervalMonths = Number(normalizeDigits(String(form.get("intervalMonths") ?? "1")));
++    let dueDates: string[];
++    try {
++      dueDates = buildJalaliInstallmentDates(String(form.get("firstDueDate") ?? ""), count, intervalMonths);
++    } catch (dateError) {
++      setError(dateError instanceof Error ? dateError.message : "زمان‌بندی اقساط معتبر نیست.");
++      return;
++    }
++    void post({
++      operation: editingLoan ? "update_loan" : "add_loan",
++      id: editingLoan?.id,
++      providerType: form.get("providerType"), providerName: form.get("providerName"), title: form.get("title"),
++      principalAmount: form.get("principalAmount"), totalPayable: form.get("totalPayable"), downPayment: form.get("downPayment"),
++      installmentCount: count, intervalMonths, dueDates, contractNumber: form.get("contractNumber"), note: form.get("note"),
++    });
++  }
++
++  function submitLoanPayment(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!paymentLoan || !paymentInstallment) return;
++    const form = new FormData(event.currentTarget);
++    let paymentDate: string;
++    try {
++      paymentDate = jalaliInputToIso(String(form.get("paymentDate") ?? ""), true) as string;
++    } catch (dateError) {
++      setError(dateError instanceof Error ? dateError.message : "تاریخ پرداخت معتبر نیست.");
++      return;
++    }
++    void post({ operation: "add_loan_payment", loanId: paymentLoan.id, installmentId: paymentInstallment.id, amo
