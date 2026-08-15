@@ -1,0 +1,148 @@
+name: Apply and validate icon centering v5
+
+on:
+  push:
+    branches:
+      - agent/icon-centering-v5
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply global icon centering rules
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/globals.css')
+          text = path.read_text()
+          marker = '/* v5 — geometric icon centering */'
+          if marker not in text:
+              text += r'''
+
+/* v5 — geometric icon centering */
+.app-shell svg[aria-hidden="true"] {
+  display: block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+
+.avatar,
+.delete-person,
+.quick-icon,
+.entry-icon,
+.empty-state > span,
+.group-mark,
+.member-stack span,
+.person-avatar,
+.add-person-card > span,
+.expense-plus,
+.transaction-icon,
+.entry-actions button,
+.settlement-history article > button,
+.transaction-actions button,
+.participant-toggle > span,
+.ledger-source,
+.ledger-item > button,
+.tool-icon,
+.search-field > span,
+.search-field > button,
+.group-head-actions .group-icon-action,
+.bottom-nav > button > span,
+.bottom-nav .nav-add {
+  display: grid;
+  place-items: center;
+}
+
+.avatar,
+.delete-person,
+.entry-actions button,
+.settlement-history article > button,
+.transaction-actions button,
+.ledger-item > button,
+.search-field > button,
+.group-head-actions .group-icon-action,
+.bottom-nav .nav-add {
+  padding: 0;
+  line-height: 0;
+}
+
+.group-head-actions .group-icon-action {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  gap: 0;
+}
+
+.bottom-nav > button > span {
+  width: 24px;
+  height: 24px;
+  line-height: 0;
+}
+
+.avatar > svg,
+.delete-person > svg,
+.quick-icon > svg,
+.entry-icon > svg,
+.empty-state > span > svg,
+.group-mark > svg,
+.member-stack span > svg,
+.person-avatar > svg,
+.add-person-card > span > svg,
+.transaction-icon > svg,
+.entry-actions button > svg,
+.settlement-history article > button > svg,
+.transaction-actions button > svg,
+.ledger-source > svg,
+.ledger-item > button > svg,
+.tool-icon > svg,
+.search-field > span > svg,
+.search-field > button > svg,
+.group-head-actions .group-icon-action > svg,
+.bottom-nav > button > span > svg,
+.bottom-nav .nav-add > svg {
+  margin: 0;
+  align-self: center;
+  justify-self: center;
+}
+'''
+              path.write_text(text)
+          PY
+
+      - name: Verify centering rules
+        shell: bash
+        run: |
+          grep -Fq '/* v5 — geometric icon centering */' app/globals.css
+          grep -Fq '.group-head-actions .group-icon-action {' app/globals.css
+          grep -Fq '.bottom-nav > button > span {' app/globals.css
+          grep -Fq 'place-items: center;' app/globals.css
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production build
+        run: npm run static:build
+
+      - name: Run regression tests
+        run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
+
+      - name: Commit validated CSS
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-icon-centering-v5.yml
+          git config user.name "Morteza Nazari"
+          git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
+          git add app/globals.css
+          git add -u .github/workflows
+          git commit -m "Center semantic icons consistently"
+          git push origin HEAD:agent/icon-centering-v5
