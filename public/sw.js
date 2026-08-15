@@ -15,6 +15,17 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) caches.open(CACHE).then((cache) => cache.put("/", response.clone()));
+          return response;
+        })
+        .catch(() => caches.match("/").then((cached) => cached || Response.error())),
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -26,7 +37,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => event.request.mode === "navigate" ? caches.match("/") : Response.error());
+        .catch(() => Response.error());
     }),
   );
 });
