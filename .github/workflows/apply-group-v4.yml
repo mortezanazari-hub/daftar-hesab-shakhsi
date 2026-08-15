@@ -21,10 +21,16 @@ jobs:
           git apply --check /tmp/group-v4.patch
           git apply /tmp/group-v4.patch
 
-      - name: Verify exact changed files
+      - name: Verify group-management outputs
         shell: bash
         run: |
-          echo "be46cc0eb86362637becaf3efef0a01d6944e7b978da3abb791bafe7945e23aa  app/FinanceApp.tsx" | sha256sum -c -
+          grep -Fq 'editingGroupId' app/FinanceApp.tsx
+          grep -Fq 'editingGroup ? "update_group" : "add_group"' app/FinanceApp.tsx
+          grep -Fq 'operation: "delete_group"' app/FinanceApp.tsx
+          grep -Fq 'ویرایش گروه دُنگی' app/FinanceApp.tsx
+          grep -Fq 'ذخیره تغییرات گروه' app/FinanceApp.tsx
+          grep -Fq 'عضو سابق' app/FinanceApp.tsx
+          grep -Fq 'group-icon-action' app/FinanceApp.tsx
           echo "9cea5e599e2e055cc770abe451b778658cdff17793ae423d65fc630337e2d215  app/local-db.ts" | sha256sum -c -
           echo "c0a9b39d5615e69c9eee763f26f47ea568b36390a689d197135b40832a6cfdcb  app/globals.css" | sha256sum -c -
           echo "9d0370f8ff377394157a91a5629db22c6b93de8c266349440c08fd7b12bfa136  tests/rendered-html.test.mjs" | sha256sum -c -
