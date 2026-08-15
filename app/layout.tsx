@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import "@fontsource-variable/vazirmatn";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {

@@ -19,7 +19,7 @@
 
 * { box-sizing: border-box; }
 html { background: #e8e3d9; }
-body { margin: 0; color: var(--ink); background: var(--paper); font-family: Tahoma, "Segoe UI", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Vazirmatn Variable", Tahoma, "Segoe UI", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(49, 93, 76, .24); outline-offset: 2px; }
@@ -127,7 +127,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sheet-title { padding: 6px 0 17px; }.sheet-title p { margin: 0 0 4px; color: var(--muted); font-size: 10px; }.sheet-title h2 { margin: 0; font-size: 22px; }
 .action-list { display: flex; flex-direction: column; gap: 7px; }.action-list > button { min-height: 65px; padding: 9px 6px; border: 0; border-bottom: 1px solid #ebe6dd; display: flex; align-items: center; gap: 11px; text-align: right; background: transparent; cursor: pointer; }.action-list > button:last-child { border-bottom: 0; }.action-list > button div:nth-child(2) { flex: 1; display: flex; flex-direction: column; gap: 4px; }.action-list strong { font-size: 12px; }.action-list small { color: var(--muted); font-size: 9px; }.action-list b { color: #a4aaa6; font-size: 22px; }
 
-.bottom-sheet form > label { margin: 0 0 14px; display: flex; flex-direction: column; gap: 7px; font-size: 10px; font-weight: 800; }.bottom-sheet label small { display: inline; color: var(--muted); font-size: 8px; font-weight: 400; }.bottom-sheet input, .bottom-sheet select, .bottom-sheet textarea { width: 100%; border: 1px solid #dcd7cd; border-radius: 13px; padding: 12px 13px; color: var(--ink); background: #fbfaf6; font-size: 12px; direction: rtl; }.bottom-sheet input[type="number"], .bottom-sheet input[type="tel"], .bottom-sheet input[type="date"] { direction: ltr; text-align: right; }.bottom-sheet textarea { resize: vertical; }
+.bottom-sheet form > label { margin: 0 0 14px; display: flex; flex-direction: column; gap: 7px; font-size: 10px; font-weight: 800; }.bottom-sheet label small { display: inline; color: var(--muted); font-size: 8px; font-weight: 400; }.bottom-sheet input, .bottom-sheet select, .bottom-sheet textarea { width: 100%; border: 1px solid #dcd7cd; border-radius: 13px; padding: 12px 13px; color: var(--ink); background: #fbfaf6; font-size: 12px; direction: rtl; }.bottom-sheet input[type="number"], .bottom-sheet input[type="tel"], .bottom-sheet input.jalali-input { direction: ltr; text-align: right; font-variant-numeric: tabular-nums; letter-spacing: .04em; }.bottom-sheet textarea { resize: vertical; }
+.date-help { margin: -7px 2px 13px; color: var(--muted); font-size: 8px; line-height: 1.8; }
 .submit-button { width: 100%; min-height: 48px; border: 0; border-radius: 14px; margin-top: 5px; color: #fff; background: var(--green); font-size: 11px; font-weight: 900; box-shadow: 0 12px 24px rgba(49,93,76,.18); cursor: pointer; }.submit-button:disabled { opacity: .55; cursor: wait; }
 .form-empty { padding: 30px 8px 15px; display: flex; flex-direction: column; align-items: center; text-align: center; }.form-empty h2 { margin: 16px 0 7px; font-size: 19px; }.form-empty p { margin: 0 0 15px; color: var(--muted); font-size: 10px; }
 .member-picker-title { margin: 5px 0 10px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; }.member-picker-title button { border: 0; color: var(--green); background: transparent; font-size: 9px; font-weight: 800; }

@@ -13,8 +13,11 @@ test("defines the Persian mobile finance application shell", async () => {
   assert.match(layout, /lang="fa" dir="rtl"/);
   assert.match(layout, /هم‌حساب/);
   assert.match(layout, /og\.png/);
+  assert.match(layout, /fontsource-variable\/vazirmatn/);
   assert.match(app, /مدیریت دُنگ/);
   assert.match(app, /دفتر اشخاص/);
+  assert.match(app, /تاریخ سررسید شمسی/);
+  assert.match(app, /jalaliInputToIso/);
   assert.match(manifest, /display: "standalone"/);
   assert.doesNotMatch(`${layout}\n${app}`, /codex-preview|react-loading-skeleton/i);
 });

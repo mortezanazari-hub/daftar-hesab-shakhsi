@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { jalaliInputToIso, persianDate, todayIso, todayJalaliInput } from "./jalali";
 
 type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
 type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
@@ -28,10 +29,6 @@ const shortMoney = (value: number) => {
   if (absolute >= 1_000) return `${number.format(Math.round(absolute / 1_000))} هـ.`;
   return number.format(absolute);
 };
-const persianDate = (value?: string | null) => value
-  ? new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "long" }).format(new Date(`${value}T12:00:00`))
-  : "بدون سررسید";
-
 export function FinanceApp() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [tab, setTab] = useState<Tab>("home");
@@ -64,7 +61,7 @@ export function FinanceApp() {
   const totalReceivable = openEntries.filter((entry) => entry.direction === "receivable").reduce((sum, entry) => sum + entry.amount, 0);
   const net = totalReceivable - totalDebt;
   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const upcoming = openEntries.filter((entry) => entry.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
 
   const personBalances = useMemo(() => people.map((person) => {
@@ -107,10 +104,17 @@ export function FinanceApp() {
   function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    let dueDate: string | null;
+    try {
+      dueDate = jalaliInputToIso(String(form.get("dueDate") ?? ""));
+    } catch (dateError) {
+      setError(dateError instanceof Error ? dateError.message : "تاریخ شمسی معتبر نیست.");
+      return;
+    }
     void post({
       operation: "add_entry", personId: form.get("personId"), kind: entryKind,
       direction: entryKind === "receivable" ? "receivable" : entryKind === "debt" ? "debt" : form.get("direction"),
-      title: form.get("title"), amount: form.get("amount"), dueDate: form.get("dueDate"), note: form.get("note"),
+      title: form.get("title"), amount: form.get("amount"), dueDate, note: form.get("note"),
     });
   }
 
@@ -124,7 +128,14 @@ export function FinanceApp() {
   function submitExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void post({ operation: "add_expense", groupId: form.get("groupId"), payerPersonId: form.get("payerPersonId"), title: form.get("title"), amount: form.get("amount"), expenseDate: form.get("expenseDate") });
+    let expenseDate: string;
+    try {
+      expenseDate = jalaliInputToIso(String(form.get("expenseDate") ?? ""), true) as string;
+    } catch (dateError) {
+      setError(dateError instanceof Error ? dateError.message : "تاریخ شمسی معتبر نیست.");
+      return;
+    }
+    void post({ operation: "add_expense", groupId: form.get("groupId"), payerPersonId: form.get("payerPersonId"), title: form.get("title"), amount: form.get("amount"), expenseDate });
   }
 
   return (
@@ -304,7 +315,8 @@ function EntryForm({ kind, people, onNeedPerson, onSubmit, busy }: { kind: strin
     {(kind === "installment" || kind === "check") && <label>نوع حساب<select name="direction"><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}
     <label>عنوان<input name="title" required placeholder={kind === "installment" ? "مثلاً قسط وام خودرو" : kind === "check" ? "مثلاً چک اجاره" : "بابت چه چیزی؟"} /></label>
     <label>مبلغ (تومان)<input name="amount" inputMode="numeric" type="number" min="1" required placeholder="مثلاً ۲۵۰۰۰۰۰" /></label>
-    <label>تاریخ سررسید <small>(اختیاری)</small><input name="dueDate" type="date" /></label>
+    <label>تاریخ سررسید شمسی <small>(اختیاری)</small><input className="jalali-input" name="dueDate" inputMode="numeric" placeholder="۱۴۰۵/۰۵/۲۴" autoComplete="off" /></label>
+    <p className="date-help">تاریخ را با سال، ماه و روز شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۵/۲۴</p>
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="توضیح کوتاه..." /></label>
     <SubmitButton busy={busy} label={`ثبت ${meta.label}`} />
   </form>;
@@ -330,7 +342,8 @@ function ExpenseForm({ groups, selectedGroup, onGroupChange, onSubmit, onNeedGro
     <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue=""><option value="" disabled>انتخاب پرداخت‌کننده</option>{selectedGroup?.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
     <label>بابت چه چیزی؟<input name="title" required placeholder="مثلاً خرید سوپرمارکت" /></label>
     <label>مبلغ کل (تومان)<input name="amount" type="number" inputMode="numeric" min="1" required placeholder="مثلاً ۱۸۵۰۰۰۰" /></label>
-    <label>تاریخ خرید<input name="expenseDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
+    <label>تاریخ خرید شمسی<input className="jalali-input" name="expenseDate" inputMode="numeric" defaultValue={todayJalaliInput()} placeholder="۱۴۰۵/۰۵/۲۴" autoComplete="off" required /></label>
+    <p className="date-help">تاریخ امروز به‌صورت شمسی درج شده و قابل ویرایش است.</p>
     {selectedGroup && <div className="split-preview"><strong>تقسیم طبق سهم</strong><div>{selectedGroup.members.map((member) => <span key={member.personId}>{member.name}: {number.format(member.shareWeight)} سهم</span>)}</div></div>}
     <SubmitButton busy={busy} label="ثبت و محاسبه دُنگ‌ها" />
   </form>;
