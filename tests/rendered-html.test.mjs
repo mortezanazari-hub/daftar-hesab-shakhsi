@@ -51,7 +51,7 @@ test("keeps dong membership explicit and supports per-expense zero shares", asyn
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("db/index.ts", root), "utf8"),
   ]);
-  assert.match(app, /setGroupMembers\(\{\}\)/);
+  assert.match(app, /setGroupMembers\(Object\.fromEntries/);
   assert.match(app, /\[personId\]: 0/);
   assert.match(app, /سهم پیش‌فرض/);
   assert.match(app, /شرکت‌کنندگان این خرید/);
@@ -104,4 +104,22 @@ test("records settlements, supports safe editing, formatted money, and backup re
   assert.match(app, /بازیابی نسخه پشتیبان/);
   assert.match(app, /ثبت تسویه واقعی/);
   assert.match(app, /جست‌وجوی شخص، عنوان یا یادداشت/);
+});
+
+
+test("dong groups can be edited and deleted without erasing historical member records", async () => {
+  const [app, localDb] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+  ]);
+  assert.match(app, /editingGroupId/);
+  assert.match(app, /operation: editingGroup \? "update_group" : "add_group"/);
+  assert.match(app, /operation: "delete_group"/);
+  assert.match(app, /ویرایش گروه دُنگی/);
+  assert.match(app, /ذخیره تغییرات گروه/);
+  assert.match(app, /عضو سابق/);
+  assert.match(localDb, /operation === "update_group"/);
+  assert.match(localDb, /active: nextWeight !== undefined/);
+  assert.match(localDb, /operation === "delete_group"/);
+  assert.match(localDb, /getAllGroupMembers/);
 });

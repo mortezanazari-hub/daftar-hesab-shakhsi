@@ -72,6 +72,7 @@ export function FinanceApp() {
   const [entryKind, setEntryKind] = useState("debt");
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [settlementDraft, setSettlementDraft] = useState<SettlementDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,6 +107,7 @@ export function FinanceApp() {
   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
   const editingEntry = data?.entries.find((entry) => entry.id === editingEntryId);
   const editingExpense = data?.groups.flatMap((group) => group.expenses.map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
+  const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
   const today = todayIso();
   const upcoming = openEntries.filter((entry) => entry.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
@@ -140,8 +142,9 @@ export function FinanceApp() {
     setSheet("entry");
   }
 
-  function beginGroup() {
-    setGroupMembers({});
+  function beginGroup(group?: Group) {
+    setEditingGroupId(group?.id ?? null);
+    setGroupMembers(Object.fromEntries((group?.members ?? []).map((member) => [member.personId, member.shareWeight])));
     setSheet("group");
   }
 
@@ -172,6 +175,11 @@ export function FinanceApp() {
 
   function deleteExpense(expense: Expense) {
     if (window.confirm(`خرید «${expense.title}» و سهم‌های آن حذف شود؟`)) void post({ operation: "delete_expense", id: expense.id }, { close: false });
+  }
+
+  function deleteGroup(group: Group) {
+    const confirmed = window.confirm(`گروه «${group.name}» حذف شود؟\n\n${number.format(group.expenses.length)} خرید و ${number.format(group.settlements.length)} تسویه این گروه برای همیشه حذف می‌شوند. اشخاص و ثبت‌های مستقیم آن‌ها حذف نمی‌شوند.`);
+    if (confirmed) void post({ operation: "delete_group", id: group.id }, { close: false });
   }
 
   function deleteSettlement(id: number) {
@@ -208,7 +216,7 @@ export function FinanceApp() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const members = Object.entries(groupMembers).map(([personId, shareWeight]) => ({ personId: Number(personId), shareWeight }));
-    void post({ operation: "add_group", name: form.get("name"), members });
+    void post({ operation: editingGroup ? "update_group" : "add_group", id: editingGroup?.id, name: form.get("name"), members });
   }
 
   function submitExpense(event: FormEvent<HTMLFormElement>, splits: Array<{ personId: number; shareWeight: number }>) {
@@ -315,7 +323,7 @@ export function FinanceApp() {
               </div>
 
               <div className="section-title"><h2>دُنگ‌های فعال</h2><button onClick={() => setTab("groups")}>مدیریت دُنگ‌ها</button></div>
-              {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={beginGroup} />}
+              {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={() => beginGroup()} />}
             </section>
           )}
 
@@ -338,11 +346,11 @@ export function FinanceApp() {
 
           {tab === "groups" && (
             <section className="page">
-              <div className="page-heading"><div><p className="eyebrow">خرج‌های مشترک و تسویه واقعی</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={beginGroup}>+ گروه جدید</button></div>
+              <div className="page-heading"><div><p className="eyebrow">خرج‌های مشترک و تسویه واقعی</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={() => beginGroup()}>+ گروه جدید</button></div>
               <SearchField value={groupSearch} onChange={setGroupSearch} placeholder="جست‌وجوی گروه، عضو یا خرید..." />
               {data.groups.length > 0 && <button className="expense-cta" onClick={() => openExpense()}><span className="expense-plus">+</span><span><strong>ثبت خرید مشترک</strong><small>افراد همین خرید و سهم هر نفر را مشخص کن</small></span><b>‹</b></button>}
               <div className="groups-stack">
-                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onExpense={() => openExpense(group.id)} onEditExpense={(expense) => openExpense(group.id, expense)} onDeleteExpense={deleteExpense} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onDeleteSettlement={deleteSettlement} />)}
+                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onEditGroup={() => beginGroup(group)} onDeleteGroup={() => deleteGroup(group)} onExpense={() => openExpense(group.id)} onEditExpense={(expense) => openExpense(group.id, expense)} onDeleteExpense={deleteExpense} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onDeleteSettlement={deleteSettlement} />)}
                 {!filteredGroups.length && <EmptyState icon="users" title={data.groups.length ? "گروهی پیدا نشد" : "دُنگ‌ها از اینجا ساده می‌شوند"} detail={data.groups.length ? "عبارت جست‌وجو را تغییر بده." : "اعضا را انتخاب کن؛ در هر خرید هم می‌توانی شرکت‌کننده‌ها و سهم‌ها را جداگانه تعیین کنی."} action={data.groups.length ? "پاک کردن جست‌وجو" : "ساخت اولین گروه"} onAction={() => data.groups.length ? setGroupSearch("") : beginGroup()} />}
               </div>
             </section>
@@ -372,11 +380,11 @@ export function FinanceApp() {
         <section className="bottom-sheet" role="dialog" aria-modal="true">
           <div className="sheet-handle" />
           <button className="sheet-close" onClick={() => setSheet(null)} aria-label="بستن">×</button>
-          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onPerson={() => setSheet("person")} onGroup={beginGroup} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
+          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}
-          {sheet === "group" && <GroupForm persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
-          {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={beginGroup} busy={busy} />}
+          {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
+          {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
           {sheet === "settlement" && settlementDraft && <SettlementForm group={data?.groups.find((group) => group.id === settlementDraft.groupId)} draft={settlementDraft} onSubmit={submitSettlement} busy={busy} />}
           {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} />}
           {sheet === "tools" && <ToolsSheet onExport={handleExport} onImport={handleImport} busy={busy} />}
@@ -426,9 +434,9 @@ function GroupPreview({ group, onClick }: { group: Group; onClick: () => void })
   </button>;
 }
 
-function GroupCard({ group, onExpense, onEditExpense, onDeleteExpense, onSettlement, onManualSettlement, onDeleteSettlement }: { group: Group; onExpense: () => void; onEditExpense: (expense: Expense) => void; onDeleteExpense: (expense: Expense) => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onDeleteSettlement: (id: number) => void }) {
+function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onEditExpense, onDeleteExpense, onSettlement, onManualSettlement, onDeleteSettlement }: { group: Group; onEditGroup: () => void; onDeleteGroup: () => void; onExpense: () => void; onEditExpense: (expense: Expense) => void; onDeleteExpense: (expense: Expense) => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onDeleteSettlement: (id: number) => void }) {
   return <article className="group-card">
-    <div className="group-card-head"><div className="group-title"><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • جمع هزینه {money(group.totalSpent)}</p></div></div><div className="group-head-actions"><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></div></div>
+    <div className="group-card-head"><div className="group-title"><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو فعال • جمع هزینه {money(group.totalSpent)}</p></div></div><div className="group-head-actions"><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></div></div>
     <div className="balances-list">
       {group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)} • سهم {money(balance.owed)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}
     </div>
@@ -470,7 +478,7 @@ function EntryForm({ kind, people, initialEntry, onNeedPerson, onSubmit, busy }:
   </form>;
 }
 
-function GroupForm({ persons, values, setValues, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
+function GroupForm({ persons, values, setValues, initialGroup, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; initialGroup?: Group; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
   const [candidateId, setCandidateId] = useState("");
   const selectedIds = new Set(Object.keys(values).map(Number));
   const selectedPeople = persons.filter((person) => selectedIds.has(person.id));
@@ -489,28 +497,31 @@ function GroupForm({ persons, values, setValues, onSubmit, onNeedPerson, busy }:
     setValues(next);
   }
 
-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>فقط افرادی را که واقعاً عضو این دُنگ هستند اضافه کن</p><h2>گروه دُنگی جدید</h2></div>
-    <label>نام گروه<input name="name" required autoFocus placeholder="مثلاً سفر شمال" /></label>
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>{initialGroup ? "نام، اعضای فعال و سهم‌های پیش‌فرض را مدیریت کن" : "فقط افرادی را که واقعاً عضو این دُنگ هستند اضافه کن"}</p><h2>{initialGroup ? "ویرایش گروه دُنگی" : "گروه دُنگی جدید"}</h2></div>
+    <label>نام گروه<input name="name" required autoFocus defaultValue={initialGroup?.name ?? ""} placeholder="مثلاً سفر شمال" /></label>
     <div className="member-picker-title"><strong>اعضای گروه</strong><button type="button" onClick={onNeedPerson}><Icon name="user-plus" size={15} /> شخص جدید</button></div>
     <div className="member-add-row"><select aria-label="انتخاب عضو جدید" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}><option value="">انتخاب شخص برای افزودن</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><button type="button" onClick={addMember} disabled={!candidateId}>+ افزودن عضو</button></div>
     {selectedPeople.length ? <div className="member-picker selected-members">{selectedPeople.map((person) => <div className="selected" key={person.id}><div className="member-identity"><span><Icon name="user" size={14} /></span><strong>{person.name}</strong>{person.isSelf && <small>حساب من</small>}</div><label>سهم پیش‌فرض<input aria-label={`سهم ${person.name}`} type="number" min="0" max="100" value={values[person.id]} onChange={(event) => setValues({ ...values, [person.id]: Math.max(0, Number(event.target.value) || 0) })} /></label><button className="remove-member" type="button" onClick={() => removeMember(person.id)} aria-label={`حذف ${person.name} از گروه`}><Icon name="trash" size={14} /></button></div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
-    <p className="form-hint">سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آینده است؛ در هر خرید می‌توانی افراد و وزن سهم را جداگانه تغییر بدهی.</p>
-    <SubmitButton busy={busy} label="ساخت گروه" />
+    <p className="form-hint">{initialGroup ? "حذف یک عضو از این فهرست فقط عضویت فعال او را برای خریدهای آینده پایان می‌دهد؛ سابقه خریدها و تسویه‌های قبلی حفظ می‌شود. اگر مانده‌ای از گذشته باز باشد، همچنان در محاسبات گروه دیده خواهد شد." : "سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آنده است؛ در هر خرید می‌توانی افراد و وزن سهم را جداگانه تغییر بدهی."}</p>
+    <SubmitButton busy={busy} label={initialGroup ? "ذخیره تغییرات گروه" : "ساخت گروه"} />
   </form>;
 }
 
 function ExpenseForm({ groups, selectedGroup, initialExpense, onGroupChange, onSubmit, onNeedGroup, busy }: { groups: Group[]; selectedGroup?: Group; initialExpense?: Expense; onGroupChange: (id: number) => void; onSubmit: (event: FormEvent<HTMLFormElement>, splits: Array<{ personId: number; shareWeight: number }>) => void; onNeedGroup: () => void; busy: boolean }) {
-  const initialWeights: Record<number, number> = Object.fromEntries((selectedGroup?.members ?? []).map((member) => [member.personId, initialExpense?.shares.find((share) => share.personId === member.personId)?.weight ?? member.shareWeight]));
+  const currentMembers = selectedGroup?.members ?? [];
+  const historicalMembers = (initialExpense?.shares ?? []).filter((share) => !currentMembers.some((member) => member.personId === share.personId)).map((share) => ({ personId: share.personId, name: share.name, shareWeight: share.weight, historical: true }));
+  const participantMembers = [...currentMembers.map((member) => ({ ...member, historical: false })), ...historicalMembers];
+  const initialWeights: Record<number, number> = Object.fromEntries(participantMembers.map((member) => [member.personId, initialExpense?.shares.find((share) => share.personId === member.personId)?.weight ?? member.shareWeight]));
   const [weights, setWeights] = useState<Record<number, number>>(initialWeights);
   if (!groups.length) return <div className="form-empty"><span className="quick-icon blue"><Icon name="users" /></span><h2>اول یک گروه بساز</h2><p>برای ثبت خرید مشترک، اعضای گروه باید مشخص باشند.</p><button className="submit-button" onClick={onNeedGroup}>ساخت گروه دُنگی</button></div>;
-  const splits = (selectedGroup?.members ?? []).map((member) => ({ personId: member.personId, shareWeight: Math.max(0, weights[member.personId] ?? 0) }));
+  const splits = participantMembers.map((member) => ({ personId: member.personId, shareWeight: Math.max(0, weights[member.personId] ?? 0) }));
   return <form onSubmit={(event) => onSubmit(event, splits)}><div className="sheet-title"><p>{initialExpense ? "خرید و سهم‌ها را اصلاح کن" : "شرکت‌کننده‌های همین خرید را انتخاب کن"}</p><h2>{initialExpense ? "ویرایش خرید مشترک" : "خرید مشترک"}</h2></div>
     <label>گروه<select name="groupId" value={selectedGroup?.id ?? ""} disabled={Boolean(initialExpense)} onChange={(event) => onGroupChange(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-    <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue={initialExpense?.payerPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{selectedGroup?.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+    <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue={initialExpense?.payerPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{participantMembers.map((member) => <option key={member.personId} value={member.personId}>{member.name}{member.historical ? " — عضو سابق" : ""}</option>)}</select></label>
     <label>بابت چه چیزی؟<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder="مثلاً خرید سوپرمارکت" /></label>
     <MoneyInput name="amount" label="مبلغ کل (تومان)" required defaultValue={initialExpense?.amount} placeholder="مثلاً ۱٬۸۵۰٬۰۰۰" />
     <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday={!initialExpense} required initialValue={initialExpense ? isoToJalaliInput(initialExpense.expenseDate) : ""} />
-    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{selectedGroup.members.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}</strong></button><label>وزن سهم<input type="number" min="0" max="100" value={weight} onChange={(event) => setWeights({ ...weights, [member.personId]: Math.max(0, Number(event.target.value) || 0) })} /></label></div>; })}</div>}
+    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><label>وزن سهم<input type="number" min="0" max="100" value={weight} onChange={(event) => setWeights({ ...weights, [member.personId]: Math.max(0, Number(event.target.value) || 0) })} /></label></div>; })}</div>}
     <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
     <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
   </form>;
@@ -520,8 +531,8 @@ function SettlementForm({ group, draft, onSubmit, busy }: { group?: Group; draft
   if (!group) return <div className="form-empty"><Icon name="settlement" size={28} /><h2>گروه پیدا نشد</h2></div>;
   return <form onSubmit={onSubmit}><div className="sheet-title"><p>پرداخت واقعی را ثبت کن تا مانده‌ها کم شود</p><h2>ثبت تسویه • {group.name}</h2></div>
     <input type="hidden" name="groupId" value={group.id} />
-    <label>چه کسی پرداخت کرد؟<select name="fromPersonId" required defaultValue={draft.fromPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{group.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
-    <label>چه کسی دریافت کرد؟<select name="toPersonId" required defaultValue={draft.toPersonId ?? ""}><option value="" disabled>انتخاب دریافت‌کننده</option>{group.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+    <label>چه کسی پرداخت کرد؟<select name="fromPersonId" required defaultValue={draft.fromPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{group.balances.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
+    <label>چه کسی دریافت کرد؟<select name="toPersonId" required defaultValue={draft.toPersonId ?? ""}><option value="" disabled>انتخاب دریافت‌کننده</option>{group.balances.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
     <MoneyInput name="amount" label="مبلغ تسویه (تومان)" required defaultValue={draft.amount} placeholder="مثلاً ۵۰۰٬۰۰۰" />
     <JalaliDatePicker name="settlementDate" label="تاریخ تسویه شمسی" defaultToday required />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً کارت‌به‌کارت" /></label>

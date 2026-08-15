@@ -42,7 +42,7 @@ export type FinanceBackup = {
 type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
 type StoredEntry = Omit<Entry, "id" | "personName"> & { id?: number };
 type StoredGroup = { id?: number; name: string; createdAt: string };
-type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number };
+type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
 type StoredExpense = Omit<Expense, "id" | "payerName" | "shares"> & { id?: number; groupId: number; createdAt: string };
 type StoredShare = { id?: number; expenseId: number; personId: number; amount: number; weight?: number };
 type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string };
@@ -302,7 +302,8 @@ export async function getFinanceData(): Promise<FinanceData> {
   const groups = storedGroups
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
     .map((group) => {
-      const members = storedMembers.filter((member) => member.groupId === group.id).map((member) => ({ personId: member.personId, name: names.get(member.personId) ?? "نامشخص", shareWeight: member.shareWeight }));
+      const storedGroupMembers = storedMembers.filter((member) => member.groupId === group.id);
+      const members = storedGroupMembers.filter((member) => member.active !== false).map((member) => ({ personId: member.personId, name: names.get(member.personId) ?? "نامشخص", shareWeight: member.shareWeight }));
       const groupExpenses = storedExpenses.filter((expense) => expense.groupId === group.id);
       const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
       const shares = storedShares.filter((share) => expenseIds.has(share.expenseId));
@@ -334,19 +335,23 @@ export async function getFinanceData(): Promise<FinanceData> {
           createdAt: settlement.createdAt,
         }))
         .sort((a, b) => b.settlementDate.localeCompare(a.settlementDate) || b.id - a.id);
-      const balances = members.map((member) => {
+      const balances = storedGroupMembers.map((member) => {
         const paid = expenses.filter((expense) => expense.payerPersonId === member.personId).reduce((sum, expense) => sum + expense.amount, 0);
         const owed = shares.filter((share) => share.personId === member.personId).reduce((sum, share) => sum + share.amount, 0);
         const settlementEffect = settlements.reduce((sum, settlement) => sum + (settlement.fromPersonId === member.personId ? settlement.amount : 0) - (settlement.toPersonId === member.personId ? settlement.amount : 0), 0);
-        return { personId: member.personId, name: member.name, paid, owed, balance: paid - owed + settlementEffect };
-      });
+        return { personId: member.personId, name: names.get(member.personId) ?? "نامشخص", paid, owed, balance: paid - owed + settlementEffect, active: member.active !== false };
+      }).filter((balance) => balance.active || balance.balance !== 0).map(({ active: _active, ...balance }) => balance);
       return { id: group.id, name: group.name, members, expenses, totalSpent: expenses.reduce((sum, expense) => sum + expense.amount, 0), balances, suggestions: makeSettlementSuggestions(balances), settlements };
     });
   return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups) };
 }
 
-async function getGroupMembers(db: IDBDatabase, groupId: number) {
+async function getAllGroupMembers(db: IDBDatabase, groupId: number) {
   return (await all<StoredMember & { id: number }>(db, "members")).filter((member) => member.groupId === groupId);
+}
+
+async function getGroupMembers(db: IDBDatabase, groupId: number) {
+  return (await getAllGroupMembers(db, groupId)).filter((member) => member.active !== false);
 }
 
 function splitWeightsForGroup(payload: Record<string, unknown>, members: Array<StoredMember & { id: number }>) {
@@ -448,7 +453,60 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     if (members.some((member) => !existingPersons.has(member.personId))) throw new Error("یکی از اعضای گروه در دفتر اشخاص پیدا نشد.");
     const transaction = db.transaction(["groups", "members"], "readwrite");
     const groupId = Number(await requestResult(transaction.objectStore("groups").add({ name, createdAt: new Date().toISOString() } satisfies StoredGroup)));
-    for (const member of members) transaction.objectStore("members").add({ groupId, ...member } satisfies StoredMember);
+    for (const member of members) transaction.objectStore("members").add({ groupId, ...member, active: true } satisfies StoredMember);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "update_group") {
+    const groupId = positiveInteger(payload.id, "شناسه گروه");
+    const name = cleanText(payload.name, 80);
+    if (!name) throw new Error("نام گروه را وارد کنید.");
+    const members = uniqueMemberWeights(payload.members);
+    if (members.length < 2) throw new Error("برای گروه دُنگی حداقل دو عضو فعال لازم است.");
+    const [groups, persons, currentMembers] = await Promise.all([
+      all<StoredGroup & { id: number }>(db, "groups"),
+      all<StoredPerson & { id: number }>(db, "persons"),
+      getAllGroupMembers(db, groupId),
+    ]);
+    const group = groups.find((item) => item.id === groupId);
+    if (!group) throw new Error("گروه موردنظر پیدا نشد.");
+    const existingPersons = new Set(persons.map((person) => person.id));
+    if (members.some((member) => !existingPersons.has(member.personId))) throw new Error("یکی از اعضای گروه در دفتر اشخاص پیدا نشد.");
+    const next = new Map(members.map((member) => [member.personId, member.shareWeight]));
+    const existingByPerson = new Map(currentMembers.map((member) => [member.personId, member]));
+    const transaction = db.transaction(["groups", "members"], "readwrite");
+    transaction.objectStore("groups").put({ ...group, id: groupId, name });
+    const memberStore = transaction.objectStore("members");
+    for (const current of currentMembers) {
+      const nextWeight = next.get(current.personId);
+      memberStore.put({ ...current, id: current.id, shareWeight: nextWeight ?? current.shareWeight, active: nextWeight !== undefined });
+    }
+    for (const member of members) {
+      if (!existingByPerson.has(member.personId)) memberStore.add({ groupId, ...member, active: true } satisfies StoredMember);
+    }
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "delete_group") {
+    const groupId = positiveInteger(payload.id, "شناسه گروه");
+    const [groups, members, expenses, shares, settlements] = await Promise.all([
+      all<StoredGroup & { id: number }>(db, "groups"),
+      all<StoredMember & { id: number }>(db, "members"),
+      all<StoredExpense & { id: number }>(db, "expenses"),
+      all<StoredShare & { id: number }>(db, "shares"),
+      all<StoredSettlement & { id: number }>(db, "settlements"),
+    ]);
+    if (!groups.some((group) => group.id === groupId)) throw new Error("گروه موردنظر پیدا نشد.");
+    const groupExpenses = expenses.filter((expense) => expense.groupId === groupId);
+    const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
+    const transaction = db.transaction(["groups", "members", "expenses", "shares", "settlements"], "readwrite");
+    transaction.objectStore("groups").delete(groupId);
+    for (const member of members.filter((member) => member.groupId === groupId)) transaction.objectStore("members").delete(member.id);
+    for (const expense of groupExpenses) transaction.objectStore("expenses").delete(expense.id);
+    for (const share of shares.filter((share) => expenseIds.has(share.expenseId))) transaction.objectStore("shares").delete(share.id);
+    for (const settlement of settlements.filter((settlement) => settlement.groupId === groupId)) transaction.objectStore("settlements").delete(settlement.id);
     await transactionDone(transaction);
     return;
   }
@@ -468,11 +526,14 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const amount = positiveInteger(payload.amount, "مبلغ");
     const title = cleanText(payload.title, 100);
     if (!title) throw new Error("عنوان خرید را وارد کنید.");
-    const members = await getGroupMembers(db, groupId);
-    if (!members.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو این گروه نیست.");
-    const weights = splitWeightsForGroup(payload, members);
-    const allocations = allocateExpenseShares(weights, amount);
+    const activeMembers = await getGroupMembers(db, groupId);
     const oldShares = id ? (await all<StoredShare & { id: number }>(db, "shares")).filter((share) => share.expenseId === id) : [];
+    const historicalIds = new Set(oldShares.map((share) => share.personId));
+    const allMembers = await getAllGroupMembers(db, groupId);
+    const allowedMembers = id ? allMembers.filter((member) => member.active !== false || historicalIds.has(member.personId)) : activeMembers;
+    if (!allowedMembers.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو فعال گروه یا از طرف‌های همین خرید نیست.");
+    const weights = splitWeightsForGroup(payload, allowedMembers);
+    const allocations = allocateExpenseShares(weights, amount);
     const transaction = db.transaction(["expenses", "shares"], "readwrite");
     const expenseStore = transaction.objectStore("expenses");
     const shareStore = transaction.objectStore("shares");
@@ -505,7 +566,7 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const toPersonId = positiveInteger(payload.toPersonId, "دریافت‌کننده");
     if (fromPersonId === toPersonId) throw new Error("پرداخت‌کننده و دریافت‌کننده نمی‌توانند یک نفر باشند.");
     const amount = positiveInteger(payload.amount, "مبلغ تسویه");
-    const members = await getGroupMembers(db, groupId);
+    const members = await getAllGroupMembers(db, groupId);
     const memberIds = new Set(members.map((member) => member.personId));
     if (!memberIds.has(fromPersonId) || !memberIds.has(toPersonId)) throw new Error("هر دو طرف تسویه باید عضو این گروه باشند.");
     const transaction = db.transaction("settlements", "readwrite");
