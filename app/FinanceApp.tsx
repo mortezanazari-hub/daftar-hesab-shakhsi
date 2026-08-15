@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { isoToJalaliInput, jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
+import { buildJalaliInstallmentDates, isoToJalaliInput, jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
 import {
   applyFinanceOperation,
   exportFinanceBackup,
@@ -11,19 +11,26 @@ import {
   type Expense,
   type FinanceData,
   type Group,
+  type Loan,
+  type LoanInstallment,
   type Person,
   type PersonAccount,
   type SettlementSuggestion,
 } from "./local-db";
 
-type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "tools" | null;
-type Tab = "home" | "ledger" | "groups" | "calendar";
-type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
+type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "tools" | null;
+type Tab = "home" | "ledger" | "groups" | "loans" | "calendar";
+type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
 
 type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
+type DueItem =
+  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; entry: Entry }
+  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment };
+
+const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
-  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: "app-icon", "data-icon": name, "aria-hidden": true };
   if (name === "home") return <svg {...common}><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-6h5v6"/></svg>;
   if (name === "book") return <svg {...common}><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22z"/><path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z"/></svg>;
   if (name === "users") return <svg {...common}><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.7 14.2c2.8-.5 4.5 1 4.8 3.8"/></svg>;
@@ -34,6 +41,8 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   if (name === "debt") return <svg {...common}><path d="M7 17 17 7M10 7h7v7"/><path d="M5 20h14"/></svg>;
   if (name === "receivable") return <svg {...common}><path d="M17 7 7 17M7 10v7h7"/><path d="M5 20h14"/></svg>;
   if (name === "installment") return <svg {...common}><path d="M7 7h11l-2.5-2.5M17 17H6l2.5 2.5"/><path d="M18 7a7 7 0 0 1 1 7M6 17a7 7 0 0 1-1-7"/></svg>;
+  if (name === "bank") return <svg {...common}><path d="m3 9 9-5 9 5"/><path d="M5 10h14M6 10v8M10 10v8M14 10v8M18 10v8M4 18h16M3 21h18"/></svg>;
+  if (name === "store") return <svg {...common}><path d="M4 9h16l-1.5-5h-13z"/><path d="M5 9v11h14V9M8 20v-6h5v6"/><path d="M4 9c0 1.7 1.2 3 2.7 3S9.3 10.7 9.3 9c0 1.7 1.2 3 2.7 3s2.7-1.3 2.7-3c0 1.7 1.2 3 2.7 3S20 10.7 20 9"/></svg>;
   if (name === "check") return <svg {...common}><path d="M5 3h11l3 3v15H5z"/><path d="M16 3v4h4M8 13l2.2 2.2L16 10"/></svg>;
   if (name === "edit") return <svg {...common}><path d="M4 20h4l11-11-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>;
   if (name === "download") return <svg {...common}><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M5 20h14"/></svg>;
@@ -47,9 +56,11 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 const entryMeta: Record<string, { label: string; icon: IconName; tone: string }> = {
   debt: { label: "بدهی", icon: "debt", tone: "coral" },
   receivable: { label: "طلب", icon: "receivable", tone: "green" },
-  installment: { label: "قسط", icon: "installment", tone: "amber" },
+  installment: { label: "قسط قدیمی", icon: "installment", tone: "amber" },
   check: { label: "چک", icon: "check", tone: "violet" },
 };
+
+const quickEntryKinds = ["debt", "receivable", "check"] as const;
 
 const number = new Intl.NumberFormat("fa-IR");
 const money = (value: number) => `${number.format(value)} تومان`;
@@ -73,6 +84,9 @@ export function FinanceApp() {
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [editingLoanId, setEditingLoanId] = useState<number | null>(null);
+  const [paymentLoanId, setPaymentLoanId] = useState<number | null>(null);
+  const [paymentInstallmentId, setPaymentInstallmentId] = useState<number | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [settlementDraft, setSettlementDraft] = useState<SettlementDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,6 +96,8 @@ export function FinanceApp() {
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [entryFilter, setEntryFilter] = useState<"all" | "open" | "paid">("all");
   const [groupSearch, setGroupSearch] = useState("");
+  const [loanSearch, setLoanSearch] = useState("");
+  const [loanFilter, setLoanFilter] = useState<"active" | "settled" | "all">("active");
 
   const load = useCallback(async () => {
     try {
@@ -102,15 +118,24 @@ export function FinanceApp() {
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
   const openEntries = data?.entries.filter((entry) => entry.status === "open") ?? [];
   const totalReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
-  const totalDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
+  const peopleDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
+  const loanDebt = data?.loans.reduce((sum, loan) => sum + loan.remainingAmount, 0) ?? 0;
+  const totalDebt = peopleDebt + loanDebt;
   const net = totalReceivable - totalDebt;
   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
   const editingEntry = data?.entries.find((entry) => entry.id === editingEntryId);
   const editingExpense = data?.groups.flatMap((group) => group.expenses.map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
   const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
+  const editingLoan = data?.loans.find((loan) => loan.id === editingLoanId);
+  const paymentLoan = data?.loans.find((loan) => loan.id === paymentLoanId);
+  const paymentInstallment = paymentLoan?.installments.find((installment) => installment.id === paymentInstallmentId);
   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
   const today = todayIso();
-  const upcoming = openEntries.filter((entry) => entry.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  const dueItems: DueItem[] = [
+    ...openEntries.filter((entry) => entry.dueDate).map((entry) => ({ id: `entry-${entry.id}`, source: "entry" as const, date: entry.dueDate as string, title: entry.title, detail: `${entry.personName} • ${entry.kind === "check" ? "چک" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`, amount: entry.amount, overdue: Boolean(entry.dueDate && entry.dueDate < today), entry })),
+    ...(data?.loans ?? []).flatMap((loan) => loan.installments.filter((installment) => installment.remainingAmount > 0).map((installment) => ({ id: `loan-${loan.id}-${installment.id}`, source: "loan" as const, date: installment.dueDate, title: loan.title, detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`, amount: installment.remainingAmount, overdue: installment.overdue, loan, installment }))),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const upcoming = dueItems;
 
   const normalizedLedgerSearch = ledgerSearch.trim().toLocaleLowerCase("fa");
   const filteredAccounts = (data?.accounts ?? []).filter((account) => !normalizedLedgerSearch || `${account.name} ${account.phone}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch));
@@ -121,6 +146,12 @@ export function FinanceApp() {
   });
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase("fa");
   const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${group.expenses.map((expense) => expense.title).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
+  const normalizedLoanSearch = loanSearch.trim().toLocaleLowerCase("fa");
+  const filteredLoans = (data?.loans ?? []).filter((loan) => {
+    if (loanFilter === "active" && loan.remainingAmount === 0) return false;
+    if (loanFilter === "settled" && loan.remainingAmount !== 0) return false;
+    return !normalizedLoanSearch || `${loan.providerName} ${loan.title} ${loan.contractNumber}`.toLocaleLowerCase("fa").includes(normalizedLoanSearch);
+  });
 
   async function post(payload: Record<string, unknown>, { close = true }: { close?: boolean } = {}) {
     setBusy(true);
@@ -140,6 +171,22 @@ export function FinanceApp() {
     setEditingEntryId(entry?.id ?? null);
     setEntryKind(entry?.kind ?? kind);
     setSheet("entry");
+  }
+
+  function openLoans() {
+    setSheet(null);
+    setTab("loans");
+  }
+
+  function openLoanForm(loan?: Loan) {
+    setEditingLoanId(loan?.id ?? null);
+    setSheet("loan-form");
+  }
+
+  function openLoanPayment(loan: Loan, installment: LoanInstallment) {
+    setPaymentLoanId(loan.id);
+    setPaymentInstallmentId(installment.id);
+    setSheet("loan-payment");
   }
 
   function beginGroup(group?: Group) {
@@ -186,6 +233,15 @@ export function FinanceApp() {
     if (window.confirm("این سابقه تسویه حذف شود؟ مانده گروه دوباره محاسبه خواهد شد.")) void post({ operation: "delete_settlement", id }, { close: false });
   }
 
+  function deleteLoan(loan: Loan) {
+    const confirmed = window.confirm(`«${loan.title}» از ${loan.providerName} حذف شود؟\n\nبرنامه تمام اقساط و سابقه پرداخت‌های این قرارداد را نیز حذف می‌کند.`);
+    if (confirmed) void post({ operation: "delete_loan", id: loan.id }, { close: false });
+  }
+
+  function deleteLoanPayment(id: number) {
+    if (window.confirm("این پرداخت حذف شود؟ مانده قسط و وام دوباره محاسبه خواهد شد.")) void post({ operation: "delete_loan_payment", id }, { close: false });
+  }
+
   function submitPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -210,6 +266,41 @@ export function FinanceApp() {
       direction: entryKind === "receivable" ? "receivable" : entryKind === "debt" ? "debt" : form.get("direction"),
       title: form.get("title"), amount: form.get("amount"), dueDate, note: form.get("note"),
     });
+  }
+
+  function submitLoan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const count = Number(normalizeDigits(String(form.get("installmentCount") ?? "")));
+    const intervalMonths = Number(normalizeDigits(String(form.get("intervalMonths") ?? "1")));
+    let dueDates: string[];
+    try {
+      dueDates = buildJalaliInstallmentDates(String(form.get("firstDueDate") ?? ""), count, intervalMonths);
+    } catch (dateError) {
+      setError(dateError instanceof Error ? dateError.message : "زمان‌بندی اقساط معتبر نیست.");
+      return;
+    }
+    void post({
+      operation: editingLoan ? "update_loan" : "add_loan",
+      id: editingLoan?.id,
+      providerType: form.get("providerType"), providerName: form.get("providerName"), title: form.get("title"),
+      principalAmount: form.get("principalAmount"), totalPayable: form.get("totalPayable"), downPayment: form.get("downPayment"),
+      installmentCount: count, intervalMonths, dueDates, contractNumber: form.get("contractNumber"), note: form.get("note"),
+    });
+  }
+
+  function submitLoanPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!paymentLoan || !paymentInstallment) return;
+    const form = new FormData(event.currentTarget);
+    let paymentDate: string;
+    try {
+      paymentDate = jalaliInputToIso(String(form.get("paymentDate") ?? ""), true) as string;
+    } catch (dateError) {
+      setError(dateError instanceof Error ? dateError.message : "تاریخ پرداخت معتبر نیست.");
+      return;
+    }
+    void post({ operation: "add_loan_payment", loanId: paymentLoan.id, installmentId: paymentInstallment.id, amount: form.get("amount"), paymentDate, note: form.get("note") });
   }
 
   function submitGroup(event: FormEvent<HTMLFormElement>) {
@@ -301,19 +392,21 @@ export function FinanceApp() {
                   <div><span className="dot green-dot" />کل طلب باز<strong>{money(totalReceivable)}</strong></div>
                   <div><span className="dot coral-dot" />کل بدهی باز<strong>{money(totalDebt)}</strong></div>
                 </div>
-                <p className="balance-caption">ثبت‌های مستقیم + اثر دُنگ‌ها + تسویه‌های ثبت‌شده</p>
+                <p className="balance-caption">ثبت‌های مستقیم + دُنگ‌ها + تسویه‌ها + مانده وام‌ها</p>
                 <div className="balance-art" aria-hidden="true"><i /><i /><i /><i /></div>
               </article>
 
               <div className="section-title"><h2>ثبت سریع</h2><button onClick={() => setSheet("actions")}>همه موارد</button></div>
               <div className="quick-grid">
-                {Object.entries(entryMeta).map(([kind, meta]) => <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>)}
+                {quickEntryKinds.slice(0, 2).map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
+                <button className="quick-action" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><span>وام و اقساط</span></button>
+                <button className="quick-action" onClick={() => openEntry("check")}><span className="quick-icon violet"><Icon name="check" /></span><span>چک</span></button>
               </div>
 
               <div className="section-title"><h2>نزدیک‌ترین سررسیدها</h2><button onClick={() => setTab("calendar")}>مشاهده همه</button></div>
-              <div className="surface-list">
-                {upcoming.slice(0, 3).map((entry) => <EntryRow key={entry.id} entry={entry} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} />)}
-                {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="ثبت قسط" onAction={() => openEntry("installment")} />}
+              <div className="surface-list due-list">
+                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} />)}
+                {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک، بدهی تاریخ‌دار یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="وام و اقساط" onAction={openLoans} />}
               </div>
 
               <div className="section-title"><h2>دفتر کل اشخاص</h2><button onClick={() => setTab("ledger")}>مشاهده همه</button></div>
@@ -321,6 +414,9 @@ export function FinanceApp() {
                 {data.accounts.slice(0, 3).map((account) => <button key={account.personId} onClick={() => openPersonLedger(account.personId)}><span className="mini-avatar"><Icon name="user" size={14} /></span><div><strong>{account.name}</strong><small>مستقیم {shortMoney(account.directBalance)} • دُنگ {shortMoney(account.dongBalance)}</small></div><b className={account.finalBalance >= 0 ? "text-green" : "text-coral"}>{balanceLabel(account.finalBalance)}</b></button>)}
                 {!data.accounts.length && <EmptyState icon="book" title="هنوز طرف حسابی نداری" detail="یک شخص اضافه کن تا دفتر کل او ساخته شود." action="افزودن شخص" onAction={() => setSheet("person")} />}
               </div>
+
+              <div className="section-title"><h2>وام و اقساط</h2><button onClick={openLoans}>مدیریت وام‌ها</button></div>
+              {data.loans.some((loan) => loan.remainingAmount > 0) ? <button className="loan-home-card" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>{number.format(data.loans.filter((loan) => loan.remainingAmount > 0).length)} قرارداد فعال</strong><small>مانده کل تعهد اقساطی</small></div><b>{money(loanDebt)}</b></button> : <EmptyState icon="bank" title="وام فعالی ثبت نشده" detail="وام بانکی یا خرید اقساطی فروشگاهی را مستقل از دفتر اشخاص مدیریت کن." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
 
               <div className="section-title"><h2>دُنگ‌های فعال</h2><button onClick={() => setTab("groups")}>مدیریت دُنگ‌ها</button></div>
               {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={() => beginGroup()} />}
@@ -356,12 +452,25 @@ export function FinanceApp() {
             </section>
           )}
 
+          {tab === "loans" && (
+            <section className="page loans-page">
+              <div className="page-heading"><div><p className="eyebrow">تعهدهای بانکی و خریدهای اقساطی</p><h2>وام و اقساط</h2></div><button className="small-primary" onClick={() => openLoanForm()}>+ قرارداد جدید</button></div>
+              <div className="loan-summary-grid"><div><small>مانده کل</small><strong>{money(loanDebt)}</strong></div><div><small>عقب‌افتاده</small><strong className={(data.loans.reduce((sum, loan) => sum + loan.overdueCount, 0)) > 0 ? "text-coral" : "text-green"}>{number.format(data.loans.reduce((sum, loan) => sum + loan.overdueCount, 0))} قسط</strong></div><div><small>قرارداد فعال</small><strong>{number.format(data.loans.filter((loan) => loan.remainingAmount > 0).length)}</strong></div></div>
+              <SearchField value={loanSearch} onChange={setLoanSearch} placeholder="جست‌وجوی بانک، فروشگاه، قرارداد یا عنوان..." />
+              <div className="filter-row"><button className={loanFilter === "active" ? "active" : ""} onClick={() => setLoanFilter("active")}>فعال</button><button className={loanFilter === "settled" ? "active" : ""} onClick={() => setLoanFilter("settled")}>تسویه‌شده</button><button className={loanFilter === "all" ? "active" : ""} onClick={() => setLoanFilter("all")}>همه</button></div>
+              <div className="loan-stack">
+                {filteredLoans.map((loan) => <LoanCard key={loan.id} loan={loan} onEdit={() => openLoanForm(loan)} onDelete={() => deleteLoan(loan)} onPayment={(installment) => openLoanPayment(loan, installment)} onDeletePayment={deleteLoanPayment} />)}
+                {!filteredLoans.length && <EmptyState icon="bank" title={data.loans.length ? "قراردادی مطابق فیلتر پیدا نشد" : "اولین وام یا خرید اقساطی را ثبت کن"} detail={data.loans.length ? "جست‌وجو یا فیلتر را تغییر بده." : "طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص دفتر کل."} action={data.loans.length ? "نمایش همه" : "ثبت قرارداد"} onAction={() => data.loans.length ? setLoanFilter("all") : openLoanForm()} />}
+              </div>
+            </section>
+          )}
+
           {tab === "calendar" && (
             <section className="page">
-              <div className="page-heading"><div><p className="eyebrow">برنامه پرداخت</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={() => openEntry("installment")}>+ سررسید</button></div>
+              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openLoans}>وام و اقساط</button></div>
               <div className="timeline">
-                {upcoming.map((entry) => <div className="timeline-row" key={entry.id}><div className={`date-badge ${entry.dueDate && entry.dueDate < today ? "overdue" : ""}`}><strong>{persianDate(entry.dueDate).split(" ")[0]}</strong><span>{persianDate(entry.dueDate).split(" ").slice(1).join(" ")}</span></div><EntryRow entry={entry} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} compact /></div>)}
-                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="برای اقساط و چک‌ها تاریخ سررسید بگذار." action="ثبت سررسید" onAction={() => openEntry("installment")} />}
+                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} /></div>)}
+                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط بانکی/فروشگاهی اینجا یکجا دیده می‌شود." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
               </div>
             </section>
           )}
@@ -380,13 +489,15 @@ export function FinanceApp() {
         <section className="bottom-sheet" role="dialog" aria-modal="true">
           <div className="sheet-handle" />
           <button className="sheet-close" onClick={() => setSheet(null)} aria-label="بستن">×</button>
-          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
+          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}
           {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
           {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
           {sheet === "settlement" && settlementDraft && <SettlementForm group={data?.groups.find((group) => group.id === settlementDraft.groupId)} draft={settlementDraft} onSubmit={submitSettlement} busy={busy} />}
           {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} />}
+          {sheet === "loan-form" && <LoanForm key={editingLoan?.id ?? "new-loan"} initialLoan={editingLoan} onSubmit={submitLoan} busy={busy} />}
+          {sheet === "loan-payment" && paymentLoan && paymentInstallment && <LoanPaymentForm loan={paymentLoan} installment={paymentInstallment} onSubmit={submitLoanPayment} busy={busy} />}
           {sheet === "tools" && <ToolsSheet onExport={handleExport} onImport={handleImport} busy={busy} />}
         </section>
       </div>}
@@ -408,6 +519,29 @@ function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entr
     <span className={`entry-icon ${meta.tone}`}><Icon name={meta.icon} /></span>
     <div className="entry-copy"><strong>{entry.title}</strong><small>{entry.personName}{entry.dueDate ? ` • ${persianDate(entry.dueDate)}` : ""}</small></div>
     <div className="entry-amount"><strong className={entry.direction === "receivable" ? "text-green" : "text-coral"}>{entry.direction === "receivable" ? "+" : "−"}{shortMoney(entry.amount)}</strong><div className="entry-actions"><button onClick={onToggle}>{entry.status === "paid" ? "بازگردانی" : "تسویه"}</button><button onClick={onEdit} aria-label="ویرایش"><Icon name="edit" size={13} /></button><button onClick={onDelete} aria-label="حذف"><Icon name="trash" size={13} /></button></div></div>
+  </article>;
+}
+
+function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPayment, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPayment: () => void; compact?: boolean }) {
+  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
+    <span className={`due-source ${item.source}`}><Icon name={item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt"} size={16} /></span>
+    <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
+    <div className="due-amount"><strong className={item.source === "entry" && item.entry.direction === "receivable" ? "text-green" : "text-coral"}>{item.source === "entry" && item.entry.direction === "receivable" ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <button onClick={onLoanPayment}>ثبت پرداخت</button> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
+  </article>;
+}
+
+function LoanCard({ loan, onEdit, onDelete, onPayment, onDeletePayment }: { loan: Loan; onEdit: () => void; onDelete: () => void; onPayment: (installment: LoanInstallment) => void; onDeletePayment: (id: number) => void }) {
+  const progress = loan.totalPayable > 0 ? Math.min(100, Math.round((loan.totalPaid / loan.totalPayable) * 100)) : 0;
+  const providerIcon: IconName = loan.providerType === "store" ? "store" : "bank";
+  return <article className={`loan-card ${loan.remainingAmount === 0 ? "settled" : ""}`}>
+    <div className="loan-card-head"><span className="loan-provider-icon"><Icon name={providerIcon} size={19} /></span><div><small>{providerTypeLabel[loan.providerType]} • {loan.providerName}</small><h3>{loan.title}</h3>{loan.contractNumber && <i>قرارداد: {loan.contractNumber}</i>}</div><span className="loan-card-actions"><button onClick={onEdit} aria-label="ویرایش قرارداد"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف قرارداد"><Icon name="trash" size={13} /></button></span></div>
+    <div className="loan-progress"><span><i style={{ width: `${progress}%` }} /></span><small>{number.format(progress)}٪ پرداخت شده</small></div>
+    <div className="loan-money-grid"><div><small>کل قرارداد</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong className={loan.remainingAmount ? "text-coral" : "text-green"}>{loan.remainingAmount ? money(loan.remainingAmount) : "تسویه کامل"}</strong></div></div>
+    {loan.financeCost > 0 && <p className="loan-finance-cost">اختلاف مبلغ پایه و کل قرارداد: <b>{money(loan.financeCost)}</b></p>}
+    {loan.nextInstallment ? <div className={`next-installment ${loan.nextInstallment.overdue ? "overdue" : ""}`}><div><small>{loan.nextInstallment.overdue ? "قسط عقب‌افتاده" : "قسط بعدی"}</small><strong>قسط {number.format(loan.nextInstallment.number)} • {persianDate(loan.nextInstallment.dueDate, true)}</strong></div><b>{money(loan.nextInstallment.remainingAmount)}</b><button onClick={() => onPayment(loan.nextInstallment)}>پرداخت</button></div> : <div className="loan-settled-banner"><Icon name="calendar-check" size={16} /> همه اقساط پرداخت شده‌اند</div>}
+    {loan.overdueCount > 0 && <p className="overdue-note">{number.format(loan.overdueCount)} قسط سررسید گذشته و هنوز مانده دارد.</p>}
+    <details className="loan-schedule"><summary><span><Icon name="calendar" size={15} />برنامه {number.format(loan.installmentCount)} قسط</span><b>{number.format(loan.paidCount)} پرداخت کامل</b></summary><div className="loan-installment-list">{loan.installments.map((installment) => <article key={installment.id} className={`${installment.status} ${installment.overdue ? "overdue" : ""}`}><span className="installment-number">{number.format(installment.number)}</span><div><strong>{persianDate(installment.dueDate, true)}</strong><small>{installment.status === "paid" ? "پرداخت کامل" : installment.status === "partial" ? `پرداخت جزئی ${money(installment.paidAmount)}` : installment.overdue ? "عقب‌افتاده" : "در انتظار پرداخت"}</small></div><b>{money(installment.remainingAmount || installment.amount)}</b>{installment.remainingAmount > 0 && <button onClick={() => onPayment(installment)}>پرداخت</button>}{installment.payments.length > 0 && <details className="installment-payments"><summary>{number.format(installment.payments.length)} پرداخت ثبت‌شده</summary><div>{installment.payments.map((payment) => <span key={payment.id}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}</i><b>{money(payment.amount)}</b><button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div></details>
+    {loan.note && <p className="loan-note">{loan.note}</p>}
   </article>;
 }
 
@@ -452,11 +586,13 @@ function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onEditExpense
   </article>;
 }
 
-function ActionSheet({ onEntry, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
+function ActionSheet({ onEntry, onLoan, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onLoan: () => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
   return <><div className="sheet-title"><p>چه چیزی می‌خواهی ثبت کنی؟</p><h2>ثبت جدید</h2></div><div className="action-list">
-    {Object.entries(entryMeta).map(([kind, meta]) => <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "پولی که باید پرداخت کنی" : kind === "receivable" ? "پولی که باید دریافت کنی" : kind === "installment" ? "پرداخت دوره‌ای و سررسید" : "چک دریافتی یا پرداختی"}</small></div><b>‹</b></button>)}
+    {(["debt", "receivable"] as const).map((kind) => { const meta = entryMeta[kind]; return <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "بدهی مستقیم به یک شخص" : "طلب مستقیم از یک شخص"}</small></div><b>‹</b></button>; })}
+    <button onClick={onLoan}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>وام و اقساط</strong><small>بانک، فروشگاه، مبلغ کل و برنامه اقساط</small></div><b>‹</b></button>
+    <button onClick={() => onEntry("check")}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>چک</strong><small>چک دریافتی یا پرداختی با سررسید</small></div><b>‹</b></button>
     <button onClick={hasGroup ? onExpense : onGroup}><span className="quick-icon blue"><Icon name="users" /></span><div><strong>{hasGroup ? "خرید دُنگی" : "گروه دُنگی"}</strong><small>{hasGroup ? "ثبت خرج مشترک با سهم اختصاصی" : "ساخت گروه و تعیین سهم‌های پیش‌فرض"}</small></div><b>‹</b></button>
-    <button onClick={onPerson}><span className="quick-icon sand"><Icon name="user-plus" /></span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌ها</small></div><b>‹</b></button>
+    <button onClick={onPerson}><span className="quick-icon sand"><Icon name="user-plus" /></span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌های شخصی</small></div><b>‹</b></button>
   </div></>;
 }
 
@@ -469,12 +605,53 @@ function EntryForm({ kind, people, initialEntry, onNeedPerson, onSubmit, busy }:
   if (!people.length) return <div className="form-empty"><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><h2>اول یک شخص اضافه کن</h2><p>هر ثبت مالی باید به یک نفر وصل باشد.</p><button className="submit-button" onClick={onNeedPerson}>افزودن شخص</button></div>;
   return <form onSubmit={onSubmit}><div className="sheet-title"><p>{initialEntry ? "اطلاعات ثبت را اصلاح کن" : "جزئیات را وارد کن"}</p><h2>{initialEntry ? "ویرایش" : "ثبت"} {meta.label}</h2></div>
     <label>طرف حساب<select name="personId" required defaultValue={initialEntry?.personId ?? ""}><option value="" disabled>انتخاب شخص</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-    {(kind === "installment" || kind === "check") && <label>نوع حساب<select name="direction" defaultValue={initialEntry?.direction ?? "debt"}><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}
-    <label>عنوان<input name="title" required defaultValue={initialEntry?.title ?? ""} placeholder={kind === "installment" ? "مثلاً قسط وام خودرو" : kind === "check" ? "مثلاً چک اجاره" : "بابت چه چیزی؟"} /></label>
+    {kind === "check" && <label>نوع حساب<select name="direction" defaultValue={initialEntry?.direction ?? "debt"}><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}{kind === "installment" && <input type="hidden" name="direction" value={initialEntry?.direction ?? "debt"} />}
+    <label>عنوان<input name="title" required defaultValue={initialEntry?.title ?? ""} placeholder={kind === "installment" ? "ثبت قدیمی قسط" : kind === "check" ? "مثلاً چک اجاره" : "بابت چه چیزی؟"} /></label>
     <MoneyInput name="amount" label="مبلغ (تومان)" required defaultValue={initialEntry?.amount} placeholder="مثلاً ۲٬۵۰۰٬۰۰۰" />
     <JalaliDatePicker name="dueDate" label="تاریخ سررسید شمسی" optional initialValue={initialEntry?.dueDate ? isoToJalaliInput(initialEntry.dueDate) : ""} />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} defaultValue={initialEntry?.note ?? ""} placeholder="توضیح کوتاه..." /></label>
     <SubmitButton busy={busy} label={initialEntry ? "ذخیره تغییرات" : `ثبت ${meta.label}`} />
+  </form>;
+}
+
+function LoanForm({ initialLoan, onSubmit, busy }: { initialLoan?: Loan; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
+  const scheduleLocked = Boolean(initialLoan?.paymentCount);
+  const [principalAmount, setPrincipalAmount] = useState(initialLoan?.principalAmount ?? 0);
+  const [totalPayable, setTotalPayable] = useState(initialLoan?.totalPayable ?? 0);
+  const [downPayment, setDownPayment] = useState(initialLoan?.downPayment ?? 0);
+  const [installmentCount, setInstallmentCount] = useState(initialLoan?.installmentCount ?? 12);
+  const [intervalMonths, setIntervalMonths] = useState(initialLoan?.intervalMonths ?? 1);
+  const financedAmount = Math.max(0, totalPayable - downPayment);
+  const baseInstallment = installmentCount > 0 ? Math.floor(financedAmount / installmentCount) : 0;
+  const lastInstallment = installmentCount > 0 ? financedAmount - baseInstallment * Math.max(0, installmentCount - 1) : 0;
+  const financeCost = principalAmount > 0 ? Math.max(0, totalPayable - principalAmount) : 0;
+
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص</p><h2>{initialLoan ? "ویرایش قرارداد اقساطی" : "وام / خرید اقساطی جدید"}</h2></div>
+    <div className="loan-provider-fields"><label>نوع طرف حساب<select name="providerType" defaultValue={initialLoan?.providerType ?? "bank"}><option value="bank">بانک</option><option value="store">فروشگاه</option><option value="other">مؤسسه / سایر</option></select></label><label>نام بانک / فروشگاه<input name="providerName" required autoFocus defaultValue={initialLoan?.providerName ?? ""} placeholder="مثلاً بانک ملت یا دیجی‌کالا" /></label></div>
+    <label>عنوان قرارداد<input name="title" required defaultValue={initialLoan?.title ?? ""} placeholder="مثلاً وام خودرو یا خرید اقساطی لپ‌تاپ" /></label>
+    <label>شماره قرارداد / پرونده <small>(اختیاری)</small><input name="contractNumber" defaultValue={initialLoan?.contractNumber ?? ""} placeholder="شماره وام، قرارداد یا پرونده" /></label>
+    {scheduleLocked ? <div className="locked-loan-schedule"><div><Icon name="bank" size={18} /><span><strong>زمان‌بندی مالی قفل است</strong><small>چون برای این قرارداد پرداخت ثبت شده، مبلغ و سررسیدها برای حفظ تاریخچه تغییر نمی‌کنند.</small></span></div><div className="locked-loan-grid"><span><small>کل قرارداد</small><b>{money(initialLoan?.totalPayable ?? 0)}</b></span><span><small>پیش‌پرداخت</small><b>{money(initialLoan?.downPayment ?? 0)}</b></span><span><small>تعداد اقساط</small><b>{number.format(initialLoan?.installmentCount ?? 0)}</b></span><span><small>اولین سررسید</small><b>{persianDate(initialLoan?.firstDueDate, true)}</b></span></div><input type="hidden" name="principalAmount" value={initialLoan?.principalAmount ?? 0} /><input type="hidden" name="totalPayable" value={initialLoan?.totalPayable ?? 0} /><input type="hidden" name="downPayment" value={initialLoan?.downPayment ?? 0} /><input type="hidden" name="installmentCount" value={initialLoan?.installmentCount ?? 1} /><input type="hidden" name="intervalMonths" value={initialLoan?.intervalMonths ?? 1} /><input type="hidden" name="firstDueDate" value={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} /></div> : <>
+      <MoneyInput name="principalAmount" label="مبلغ پایه / اصل وام (تومان) — اختیاری" defaultValue={initialLoan?.principalAmount} placeholder="برای محاسبه هزینه تأمین مالی" onValueChange={setPrincipalAmount} />
+      <MoneyInput name="totalPayable" label="مبلغ کل قرارداد (تومان)" required defaultValue={initialLoan?.totalPayable} placeholder="پیش‌پرداخت + تمام اقساط" onValueChange={setTotalPayable} />
+      <MoneyInput name="downPayment" label="پیش‌پرداخت (تومان) — اختیاری" defaultValue={initialLoan?.downPayment} placeholder="اگر ندارد صفر بگذار" onValueChange={setDownPayment} />
+      <div className="loan-schedule-fields"><label>تعداد اقساط<input name="installmentCount" type="number" min="1" max="600" required value={installmentCount} onChange={(event) => setInstallmentCount(Math.max(1, Number(event.target.value) || 1))} /></label><label>هر چند ماه؟<input name="intervalMonths" type="number" min="1" max="24" required value={intervalMonths} onChange={(event) => setIntervalMonths(Math.max(1, Number(event.target.value) || 1))} /></label></div>
+      <JalaliDatePicker name="firstDueDate" label="اولین تاریخ سررسید" required initialValue={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} />
+      {financedAmount > 0 && installmentCount > 0 && <div className="loan-preview"><span><small>مبلغ قابل تقسیط</small><strong>{money(financedAmount)}</strong></span><span><small>قسط معمول</small><strong>{money(baseInstallment)}</strong></span><span><small>قسط آخر</small><strong>{money(lastInstallment)}</strong></span>{financeCost > 0 && <span><small>اختلاف با مبلغ پایه</small><strong>{money(financeCost)}</strong></span>}</div>}
+    </>}
+    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={3} defaultValue={initialLoan?.note ?? ""} placeholder="مثلاً نرخ، شعبه، روش پرداخت یا توضیح قرارداد..." /></label>
+    <p className="form-hint">برنامه اقساط بر اساس تقویم شمسی ساخته می‌شود. اگر روز سررسید در یک ماه وجود نداشته باشد، آخرین روز همان ماه انتخاب می‌شود.</p>
+    <SubmitButton busy={busy} label={initialLoan ? "ذخیره تغییرات قرارداد" : "ساخت برنامه اقساط"} />
+  </form>;
+}
+
+function LoanPaymentForm({ loan, installment, onSubmit, busy }: { loan: Loan; installment: LoanInstallment; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
+  return <form onSubmit={onSubmit}><div className="sheet-title"><p>{loan.providerName} • {loan.title}</p><h2>ثبت پرداخت قسط {number.format(installment.number)}</h2></div>
+    <div className={`payment-installment-summary ${installment.overdue ? "overdue" : ""}`}><span><small>سررسید</small><strong>{persianDate(installment.dueDate, true)}</strong></span><span><small>مبلغ قسط</small><strong>{money(installment.amount)}</strong></span><span><small>قبلاً پرداخت شده</small><strong>{money(installment.paidAmount)}</strong></span><span><small>مانده این قسط</small><strong>{money(installment.remainingAmount)}</strong></span></div>
+    <MoneyInput name="amount" label="مبلغ پرداختی (تومان)" required defaultValue={installment.remainingAmount} placeholder="مبلغ پرداخت" />
+    <JalaliDatePicker name="paymentDate" label="تاریخ پرداخت" defaultToday required />
+    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً پرداخت اینترنتی، شماره پیگیری..." /></label>
+    <p className="form-hint">پرداخت جزئی هم مجاز است. تا وقتی مجموع پرداخت‌ها به مبلغ قسط نرسد، قسط باز باقی می‌ماند.</p>
+    <SubmitButton busy={busy} label="ثبت پرداخت" />
   </form>;
 }
 
@@ -553,15 +730,16 @@ function PersonLedgerSheet({ account, onEditEntry }: { account: PersonAccount; o
 
 function ToolsSheet({ onExport, onImport, busy }: { onExport: () => void; onImport: (file: File) => void; busy: boolean }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  return <div><div className="sheet-title"><p>اطلاعات روی همین مرورگر ذخیره می‌شوند</p><h2>پشتیبان و بازیابی</h2></div><div className="tools-list"><button onClick={onExport}><span className="tool-icon"><Icon name="download" /></span><div><strong>دریافت نسخه پشتیبان</strong><small>همه اشخاص، ثبت‌ها، دُنگ‌ها، خریدها، سهم‌ها و تسویه‌ها در یک فایل JSON</small></div></button><button disabled={busy} onClick={() => inputRef.current?.click()}><span className="tool-icon"><Icon name="upload" /></span><div><strong>بازیابی نسخه پشتیبان</strong><small>اطلاعات فعلی این دستگاه با فایل انتخاب‌شده جایگزین می‌شود</small></div></button></div><input ref={inputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImport(file); event.currentTarget.value = ""; }} /><p className="backup-warning">نسخه پشتیبان را در جای امن نگه دار. پاک کردن داده‌های مرورگر می‌تواند دفتر محلی را حذف کند.</p></div>;
+  return <div><div className="sheet-title"><p>اطلاعات روی همین مرورگر ذخیره می‌شوند</p><h2>پشتیبان و بازیابی</h2></div><div className="tools-list"><button onClick={onExport}><span className="tool-icon"><Icon name="download" /></span><div><strong>دریافت نسخه پشتیبان</strong><small>همه اشخاص، ثبت‌ها، دُنگ‌ها، وام‌ها، برنامه اقساط و پرداخت‌ها در یک فایل JSON</small></div></button><button disabled={busy} onClick={() => inputRef.current?.click()}><span className="tool-icon"><Icon name="upload" /></span><div><strong>بازیابی نسخه پشتیبان</strong><small>اطلاعات فعلی این دستگاه با فایل انتخاب‌شده جایگزین می‌شود</small></div></button></div><input ref={inputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImport(file); event.currentTarget.value = ""; }} /><p className="backup-warning">نسخه پشتیبان را در جای امن نگه دار. پاک کردن داده‌های مرورگر می‌تواند دفتر محلی را حذف کند.</p></div>;
 }
 
-function MoneyInput({ name, label, required = false, defaultValue, placeholder }: { name: string; label: string; required?: boolean; defaultValue?: number; placeholder?: string }) {
+function MoneyInput({ name, label, required = false, defaultValue, placeholder, onValueChange }: { name: string; label: string; required?: boolean; defaultValue?: number; placeholder?: string; onValueChange?: (value: number) => void }) {
   const [digits, setDigits] = useState(defaultValue ? String(defaultValue) : "");
   const display = digits ? number.format(Number(digits)) : "";
   function update(value: string) {
     const normalized = normalizeDigits(value).replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
     setDigits(normalized);
+    onValueChange?.(normalized ? Number(normalized) : 0);
   }
   return <label>{label}<input className="money-input" inputMode="numeric" value={display} onChange={(event) => update(event.target.value)} required={required} placeholder={placeholder} autoComplete="off" /><input type="hidden" name={name} value={digits} /></label>;
 }

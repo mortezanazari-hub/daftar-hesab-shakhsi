@@ -1,5 +1,8 @@
 export type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
 export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
+export type LoanPayment = { id: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string };
+export type LoanInstallment = { id: number; loanId: number; number: number; dueDate: string; amount: number; paidAmount: number; remainingAmount: number; status: "open" | "partial" | "paid"; overdue: boolean; payments: LoanPayment[] };
+export type Loan = { id: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; financedAmount: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string; installments: LoanInstallment[]; totalPaid: number; remainingAmount: number; paidCount: number; overdueCount: number; paymentCount: number; financeCost: number; nextInstallment: LoanInstallment | null };
 export type GroupMember = { personId: number; name: string; shareWeight: number };
 export type ExpenseShare = { personId: number; name: string; amount: number; weight: number };
 export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[] };
@@ -22,11 +25,11 @@ export type PersonLedgerItem = {
 };
 export type PersonGroupImpact = { groupId: number; groupName: string; balance: number };
 export type PersonAccount = { personId: number; name: string; phone: string; color: string; directBalance: number; dongBalance: number; finalBalance: number; groups: PersonGroupImpact[]; items: PersonLedgerItem[] };
-export type FinanceData = { persons: Person[]; entries: Entry[]; groups: Group[]; accounts: PersonAccount[] };
+export type FinanceData = { persons: Person[]; entries: Entry[]; groups: Group[]; accounts: PersonAccount[]; loans: Loan[] };
 
 export type FinanceBackup = {
   app: "daftar-hesab-shakhsi";
-  version: 2;
+  version: 3;
   exportedAt: string;
   stores: {
     persons: Array<Record<string, unknown>>;
@@ -36,6 +39,9 @@ export type FinanceBackup = {
     expenses: Array<Record<string, unknown>>;
     shares: Array<Record<string, unknown>>;
     settlements: Array<Record<string, unknown>>;
+    loans: Array<Record<string, unknown>>;
+    loanInstallments: Array<Record<string, unknown>>;
+    loanPayments: Array<Record<string, unknown>>;
   };
 };
 
@@ -46,10 +52,13 @@ type StoredMember = { id?: number; groupId: number; personId: number; shareWeigh
 type StoredExpense = Omit<Expense, "id" | "payerName" | "shares"> & { id?: number; groupId: number; createdAt: string };
 type StoredShare = { id?: number; expenseId: number; personId: number; amount: number; weight?: number };
 type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string };
+type StoredLoan = { id?: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string };
+type StoredLoanInstallment = { id?: number; loanId: number; number: number; dueDate: string; amount: number };
+type StoredLoanPayment = { id?: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string };
 
 const DB_NAME = "hamhesab-local";
-const DB_VERSION = 2;
-const STORE_NAMES = ["persons", "entries", "groups", "members", "expenses", "shares", "settlements"] as const;
+const DB_VERSION = 3;
+const STORE_NAMES = ["persons", "entries", "groups", "members", "expenses", "shares", "settlements", "loans", "loanInstallments", "loanPayments"] as const;
 const COLORS = ["#315d4c", "#b65b4a", "#5f659b", "#447b8b", "#9a6b38"];
 let databasePromise: Promise<IDBDatabase> | null = null;
 
@@ -280,10 +289,22 @@ function buildPersonAccounts(persons: Person[], entries: Entry[], groups: Group[
   }).sort((a, b) => Math.abs(b.finalBalance) - Math.abs(a.finalBalance) || a.name.localeCompare(b.name, "fa"));
 }
 
+function currentLocalIsoDate() {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function cleanIsoDate(value: unknown, label: string) {
+  const date = cleanText(value, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${label} معتبر نیست.`);
+  return date;
+}
+
 export async function getFinanceData(): Promise<FinanceData> {
   const db = await openDatabase();
   await ensureSelf(db);
-  const [storedPersons, storedEntries, storedGroups, storedMembers, storedExpenses, storedShares, storedSettlements] = await Promise.all([
+  const [storedPersons, storedEntries, storedGroups, storedMembers, storedExpenses, storedShares, storedSettlements, storedLoans, storedLoanInstallments, storedLoanPayments] = await Promise.all([
     all<StoredPerson & { id: number }>(db, "persons"),
     all<StoredEntry & { id: number }>(db, "entries"),
     all<StoredGroup & { id: number }>(db, "groups"),
@@ -291,6 +312,9 @@ export async function getFinanceData(): Promise<FinanceData> {
     all<StoredExpense & { id: number }>(db, "expenses"),
     all<StoredShare & { id: number }>(db, "shares"),
     all<StoredSettlement & { id: number }>(db, "settlements"),
+    all<StoredLoan & { id: number }>(db, "loans"),
+    all<StoredLoanInstallment & { id: number }>(db, "loanInstallments"),
+    all<StoredLoanPayment & { id: number }>(db, "loanPayments"),
   ]);
   const persons = storedPersons
     .map(({ id, name, phone, isSelf, color }) => ({ id, name, phone, isSelf, color }))
@@ -343,7 +367,37 @@ export async function getFinanceData(): Promise<FinanceData> {
       }).filter((balance) => balance.active || balance.balance !== 0).map(({ active: _active, ...balance }) => balance);
       return { id: group.id, name: group.name, members, expenses, totalSpent: expenses.reduce((sum, expense) => sum + expense.amount, 0), balances, suggestions: makeSettlementSuggestions(balances), settlements };
     });
-  return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups) };
+  const today = currentLocalIsoDate();
+  const loans: Loan[] = storedLoans.map((loan) => {
+    const loanPayments = storedLoanPayments.filter((payment) => payment.loanId === loan.id);
+    const installments: LoanInstallment[] = storedLoanInstallments
+      .filter((installment) => installment.loanId === loan.id)
+      .sort((a, b) => a.number - b.number)
+      .map((installment) => {
+        const payments = loanPayments
+          .filter((payment) => payment.installmentId === installment.id)
+          .map((payment) => ({ ...payment }))
+          .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate) || b.id - a.id);
+        const paidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+        const remainingAmount = Math.max(0, installment.amount - paidAmount);
+        const status: LoanInstallment["status"] = remainingAmount === 0 ? "paid" : paidAmount > 0 ? "partial" : "open";
+        return { id: installment.id, loanId: loan.id, number: installment.number, dueDate: installment.dueDate, amount: installment.amount, paidAmount, remainingAmount, status, overdue: remainingAmount > 0 && installment.dueDate < today, payments };
+      });
+    const installmentPayments = loanPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    const financedAmount = Math.max(0, loan.totalPayable - loan.downPayment);
+    const totalPaid = Math.min(loan.totalPayable, loan.downPayment + installmentPayments);
+    const remainingAmount = Math.max(0, loan.totalPayable - totalPaid);
+    const nextInstallment = installments.filter((installment) => installment.remainingAmount > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.number - b.number)[0] ?? null;
+    return {
+      id: loan.id, providerType: loan.providerType, providerName: loan.providerName, title: loan.title, principalAmount: loan.principalAmount, totalPayable: loan.totalPayable, downPayment: loan.downPayment, financedAmount, installmentCount: loan.installmentCount, intervalMonths: loan.intervalMonths, firstDueDate: loan.firstDueDate, contractNumber: loan.contractNumber, note: loan.note, createdAt: loan.createdAt,
+      installments, totalPaid, remainingAmount, paidCount: installments.filter((installment) => installment.status === "paid").length, overdueCount: installments.filter((installment) => installment.overdue).length, paymentCount: loanPayments.length, financeCost: loan.principalAmount > 0 ? Math.max(0, loan.totalPayable - loan.principalAmount) : 0, nextInstallment,
+    };
+  }).sort((a, b) => {
+    if (a.remainingAmount === 0 && b.remainingAmount !== 0) return 1;
+    if (a.remainingAmount !== 0 && b.remainingAmount === 0) return -1;
+    return (a.nextInstallment?.dueDate ?? "9999-99-99").localeCompare(b.nextInstallment?.dueDate ?? "9999-99-99") || b.id - a.id;
+  });
+  return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups), loans };
 }
 
 async function getAllGroupMembers(db: IDBDatabase, groupId: number) {
@@ -413,6 +467,101 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const id = positiveInteger(payload.id, "شناسه");
     const transaction = db.transaction("entries", "readwrite");
     transaction.objectStore("entries").delete(id);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "add_loan" || operation === "update_loan") {
+    const providerType = ["bank", "store", "other"].includes(String(payload.providerType)) ? String(payload.providerType) as StoredLoan["providerType"] : "bank";
+    const providerName = cleanText(payload.providerName, 80);
+    const title = cleanText(payload.title, 100);
+    if (!providerName) throw new Error("نام بانک، فروشگاه یا مؤسسه را وارد کنید.");
+    if (!title) throw new Error("عنوان وام یا خرید اقساطی را وارد کنید.");
+    const principalAmount = nonNegativeInteger(payload.principalAmount, "مبلغ پایه");
+    const totalPayable = positiveInteger(payload.totalPayable, "مبلغ کل قرارداد");
+    const downPayment = nonNegativeInteger(payload.downPayment, "پیش‌پرداخت");
+    if (downPayment >= totalPayable) throw new Error("پیش‌پرداخت باید کمتر از مبلغ کل قرارداد باشد.");
+    const installmentCount = positiveInteger(payload.installmentCount, "تعداد اقساط");
+    if (installmentCount > 600) throw new Error("تعداد اقساط نمی‌تواند بیشتر از ۶۰۰ باشد.");
+    const intervalMonths = positiveInteger(payload.intervalMonths, "فاصله اقساط");
+    if (intervalMonths > 24) throw new Error("فاصله اقساط نمی‌تواند بیشتر از ۲۴ ماه باشد.");
+    const dueDates = (Array.isArray(payload.dueDates) ? payload.dueDates : []).map((value) => cleanIsoDate(value, "تاریخ سررسید"));
+    if (dueDates.length !== installmentCount) throw new Error("تعداد تاریخ‌های سررسید با تعداد اقساط برابر نیست.");
+    const firstDueDate = dueDates[0];
+    const financedAmount = totalPayable - downPayment;
+    const baseInstallment = Math.floor(financedAmount / installmentCount);
+    if (baseInstallment <= 0) throw new Error("مبلغ قابل تقسیط برای این تعداد قسط کافی نیست.");
+    const schedule = dueDates.map((dueDate, index) => ({ number: index + 1, dueDate, amount: index === installmentCount - 1 ? financedAmount - baseInstallment * (installmentCount - 1) : baseInstallment }));
+    const id = operation === "update_loan" ? positiveInteger(payload.id, "شناسه وام") : null;
+
+    if (!id) {
+      const transaction = db.transaction(["loans", "loanInstallments"], "readwrite");
+      const loanId = Number(await requestResult(transaction.objectStore("loans").add({ providerType, providerName, title, principalAmount, totalPayable, downPayment, installmentCount, intervalMonths, firstDueDate, contractNumber: cleanText(payload.contractNumber, 80), note: cleanText(payload.note, 500), createdAt: new Date().toISOString() } satisfies StoredLoan)));
+      for (const installment of schedule) transaction.objectStore("loanInstallments").add({ loanId, ...installment } satisfies StoredLoanInstallment);
+      await transactionDone(transaction);
+      return;
+    }
+
+    const [loans, currentInstallments, payments] = await Promise.all([
+      all<StoredLoan & { id: number }>(db, "loans"),
+      all<StoredLoanInstallment & { id: number }>(db, "loanInstallments"),
+      all<StoredLoanPayment & { id: number }>(db, "loanPayments"),
+    ]);
+    const current = loans.find((loan) => loan.id === id);
+    if (!current) throw new Error("وام یا خرید اقساطی موردنظر پیدا نشد.");
+    const loanInstallments = currentInstallments.filter((installment) => installment.loanId === id).sort((a, b) => a.number - b.number);
+    const loanPayments = payments.filter((payment) => payment.loanId === id);
+    const scheduleChanged = current.totalPayable !== totalPayable || current.downPayment !== downPayment || current.installmentCount !== installmentCount || current.intervalMonths !== intervalMonths || loanInstallments.length !== schedule.length || loanInstallments.some((installment, index) => installment.dueDate !== schedule[index]?.dueDate || installment.amount !== schedule[index]?.amount);
+    if (loanPayments.length && scheduleChanged) throw new Error("بعد از ثبت پرداخت، مبلغ و زمان‌بندی اقساط قابل تغییر نیست. اطلاعات بانک، عنوان، شماره قرارداد و یادداشت را می‌توانی ویرایش کنی.");
+    const transaction = db.transaction(["loans", "loanInstallments"], "readwrite");
+    transaction.objectStore("loans").put({ ...current, id, providerType, providerName, title, principalAmount, totalPayable, downPayment, installmentCount, intervalMonths, firstDueDate, contractNumber: cleanText(payload.contractNumber, 80), note: cleanText(payload.note, 500) });
+    if (!loanPayments.length) {
+      const installmentStore = transaction.objectStore("loanInstallments");
+      for (const installment of loanInstallments) installmentStore.delete(installment.id);
+      for (const installment of schedule) installmentStore.add({ loanId: id, ...installment } satisfies StoredLoanInstallment);
+    }
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "delete_loan") {
+    const loanId = positiveInteger(payload.id, "شناسه وام");
+    const [installments, payments] = await Promise.all([
+      all<StoredLoanInstallment & { id: number }>(db, "loanInstallments"),
+      all<StoredLoanPayment & { id: number }>(db, "loanPayments"),
+    ]);
+    const transaction = db.transaction(["loans", "loanInstallments", "loanPayments"], "readwrite");
+    transaction.objectStore("loans").delete(loanId);
+    for (const installment of installments.filter((item) => item.loanId === loanId)) transaction.objectStore("loanInstallments").delete(installment.id);
+    for (const payment of payments.filter((item) => item.loanId === loanId)) transaction.objectStore("loanPayments").delete(payment.id);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "add_loan_payment") {
+    const loanId = positiveInteger(payload.loanId, "وام");
+    const installmentId = positiveInteger(payload.installmentId, "قسط");
+    const amount = positiveInteger(payload.amount, "مبلغ پرداخت");
+    const [installments, payments] = await Promise.all([
+      all<StoredLoanInstallment & { id: number }>(db, "loanInstallments"),
+      all<StoredLoanPayment & { id: number }>(db, "loanPayments"),
+    ]);
+    const installment = installments.find((item) => item.id === installmentId && item.loanId === loanId);
+    if (!installment) throw new Error("قسط موردنظر پیدا نشد.");
+    const alreadyPaid = payments.filter((payment) => payment.installmentId === installmentId).reduce((sum, payment) => sum + payment.amount, 0);
+    const remaining = Math.max(0, installment.amount - alreadyPaid);
+    if (remaining === 0) throw new Error("این قسط قبلاً کامل پرداخت شده است.");
+    if (amount > remaining) throw new Error(`مبلغ پرداخت نمی‌تواند بیشتر از مانده این قسط (${remaining.toLocaleString("fa-IR")} تومان) باشد.`);
+    const transaction = db.transaction("loanPayments", "readwrite");
+    transaction.objectStore("loanPayments").add({ loanId, installmentId, amount, paymentDate: cleanIsoDate(payload.paymentDate, "تاریخ پرداخت"), note: cleanText(payload.note, 300), createdAt: new Date().toISOString() } satisfies StoredLoanPayment);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "delete_loan_payment") {
+    const id = positiveInteger(payload.id, "شناسه پرداخت");
+    const transaction = db.transaction("loanPayments", "readwrite");
+    transaction.objectStore("loanPayments").delete(id);
     await transactionDone(transaction);
     return;
   }
@@ -593,7 +742,7 @@ export async function exportFinanceBackup() {
   for (const name of STORE_NAMES) {
     stores[name] = await all<Record<string, unknown>>(db, name);
   }
-  const payload: FinanceBackup = { app: "daftar-hesab-shakhsi", version: 2, exportedAt: new Date().toISOString(), stores };
+  const payload: FinanceBackup = { app: "daftar-hesab-shakhsi", version: 3, exportedAt: new Date().toISOString(), stores };
   return JSON.stringify(payload, null, 2);
 }
 

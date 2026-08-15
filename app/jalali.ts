@@ -73,6 +73,29 @@ export function jalaliMonthName(month: number) {
   return persianMonths[month - 1] ?? "";
 }
 
+export function buildJalaliInstallmentDates(firstValue: string, count: number, intervalMonths = 1) {
+  const normalized = normalizeDigits(firstValue).trim().replace(/[-.]/g, "/");
+  const match = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(normalized);
+  if (!match) throw new Error("تاریخ اولین سررسید را انتخاب کنید.");
+  const jy = Number(match[1]);
+  const jm = Number(match[2]);
+  const jd = Number(match[3]);
+  if (!isValidJalaaliDate(jy, jm, jd)) throw new Error("تاریخ اولین سررسید معتبر نیست.");
+  const safeCount = Math.floor(Number(count));
+  const safeInterval = Math.floor(Number(intervalMonths));
+  if (!Number.isFinite(safeCount) || safeCount < 1 || safeCount > 600) throw new Error("تعداد اقساط باید بین ۱ تا ۶۰۰ باشد.");
+  if (!Number.isFinite(safeInterval) || safeInterval < 1 || safeInterval > 24) throw new Error("فاصله اقساط باید بین ۱ تا ۲۴ ماه باشد.");
+
+  return Array.from({ length: safeCount }, (_, index) => {
+    const absoluteMonth = (jm - 1) + index * safeInterval;
+    const year = jy + Math.floor(absoluteMonth / 12);
+    const month = (absoluteMonth % 12) + 1;
+    const day = Math.min(jd, jalaaliMonthLength(year, month));
+    const result = toGregorian(year, month, day);
+    return `${result.gy}-${pad(result.gm)}-${pad(result.gd)}`;
+  });
+}
+
 export function todayIso() {
   const today = new Date();
   return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;

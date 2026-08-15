@@ -32,7 +32,7 @@ test("ships a device-local offline database and no starter preview", async () =>
   ]);
   assert.match(hosting, /"d1": null/);
   assert.match(localDb, /indexedDB\.open/);
-  assert.match(localDb, /DB_VERSION = 2/);
+  assert.match(localDb, /DB_VERSION = 3/);
   assert.match(localDb, /"settlements"/);
   assert.match(localDb, /add_entry/);
   assert.match(localDb, /add_group/);
@@ -80,7 +80,7 @@ test("unifies direct balances and dong effects per person", async () => {
   assert.match(localDb, /expense\.payerPersonId === self\.id/);
   assert.match(localDb, /expense\.payerPersonId === person\.id/);
   assert.match(localDb, /settlement\.fromPersonId === person\.id && settlement\.toPersonId === self\.id/);
-  assert.match(app, /ثبت‌های مستقیم \+ اثر دُنگ‌ها \+ تسویه‌های ثبت‌شده/);
+  assert.match(app, /ثبت‌های مستقیم \+ دُنگ‌ها \+ تسویه‌ها \+ مانده وام‌ها/);
   assert.match(app, /گردش کامل/);
   assert.match(app, /تفکیک دُنگ‌ها/);
 });
@@ -122,4 +122,28 @@ test("dong groups can be edited and deleted without erasing historical member re
   assert.match(localDb, /active: nextWeight !== undefined/);
   assert.match(localDb, /operation === "delete_group"/);
   assert.match(localDb, /getAllGroupMembers/);
+});
+
+
+test("models bank and store installments independently from person ledgers", async () => {
+  const [app, localDb, jalali, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("app/jalali.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /وام و اقساط/);
+  assert.match(app, /طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص/);
+  assert.match(app, /مبلغ کل قرارداد/);
+  assert.match(app, /ساخت برنامه اقساط/);
+  assert.match(app, /پرداخت جزئی هم مجاز است/);
+  assert.match(app, /data\.loans/);
+  assert.match(localDb, /"loanInstallments"/);
+  assert.match(localDb, /"loanPayments"/);
+  assert.match(localDb, /operation === "add_loan" \|\| operation === "update_loan"/);
+  assert.match(localDb, /operation === "add_loan_payment"/);
+  assert.match(localDb, /remainingAmount/);
+  assert.match(jalali, /buildJalaliInstallmentDates/);
+  assert.match(css, /\.calendar-trigger \{[^}]*place-items: center/s);
+  assert.match(css, /\.loan-card/);
 });
