@@ -1,0 +1,45 @@
+((payment) => <span key={payment.id}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}</i><b>{money(payment.amount)}</b><button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div>{loan.note && <p className="loan-note">{loan.note}</p>}</div></details>
+   </article>;
+ }
+ 
+@@ -707,9 +752,11 @@ function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: Ch
+   const [checkType, setCheckType] = useState<CheckRecord["checkType"]>(initialCheck?.checkType ?? "sayadi");
+   const [counterpartyMode, setCounterpartyMode] = useState<"person" | "custom">(initialCheck?.relatedPersonId ? "person" : "custom");
+   const [relatedPersonId, setRelatedPersonId] = useState(initialCheck?.relatedPersonId ? String(initialCheck.relatedPersonId) : "");
++  const [customCounterparty, setCustomCounterparty] = useState(initialCheck?.relatedPersonId ? "" : initialCheck?.counterpartyName ?? "");
+   const [issuerName, setIssuerName] = useState(initialCheck?.issuerName ?? (initialCheck?.direction === "issued" ? "من" : ""));
+-  const [beneficiaryName, setBeneficiaryName] = useState(initialCheck?.beneficiaryName ?? (initialCheck?.direction === "issued" ? "" : "من"));
++  const [beneficiaryName, setBeneficiaryName] = useState(initialCheck?.beneficiaryName ?? (initialCheck?.direction === "received" ? "من" : ""));
+   const selectedPerson = people.find((person) => person.id === Number(relatedPersonId));
++  const partyName = counterpartyMode === "person" ? selectedPerson?.name ?? "" : customCounterparty;
+   function chooseDirection(next: CheckRecord["direction"]) {
+     if (next === direction) return;
+     setDirection(next);
+@@ -718,29 +765,46 @@ function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: Ch
+       setBeneficiaryName(next === "received" ? "من" : "");
+     }
+   }
+-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>سند چک را جدا از بدهی/طلب ساده ثبت کن</p><h2>{initialCheck ? "ویرایش چک" : "چک جدید"}</h2></div>
+-    <div className="check-direction-picker"><button type="button" className={direction === "received" ? "active received" : ""} onClick={() => chooseDirection("received")}><Icon name="receivable" size={16} /><span><strong>چک گرفته‌ام</strong><small>مطالبه / سند دریافتنی</small></span></button><button type="button" className={direction === "issued" ? "active issued" : ""} onClick={() => chooseDirection("issued")}><Icon name="debt" size={16} /><span><strong>چک داده‌ام</strong><small>تعهد / سند پرداختنی</small></span></button></div>
++  return <form onSubmit={onSubmit}><div className="sheet-title"><p>ساده ثبتش کن؛ جزئیات همیشه بعداً قابل تکمیل‌اند</p><h2>{initialCheck ? "ویرایش چک" : "چک جدید"}</h2></div>
++    <div className="check-direction-picker personal"><button type="button" className={direction === "received" ? "active received" : ""} onClick={() => chooseDirection("received")}><Icon name="receivable" size={16} /><span><strong>گرفتم</strong><small>یک چک دست من آمده</small></span></button><button type="button" className={direction === "issued" ? "active issued" : ""} onClick={() => chooseDirection("issued")}><Icon name="debt" size={16} /><span><strong>دادم</strong><small>یک چک از من خارج شده</small></span></button></div>
+     <input type="hidden" name="direction" value={direction} />
+-    <div className="check-section-title"><strong>طرف حساب مالی</strong><small>کسی که این چک در رابطه مالی تو با اوست</small></div>
+-    <div className="check-counterparty-tabs"><button type="button" className={counterpartyMode === "person" ? "active" : ""} onClick={() => setCounterpartyMode("person")}>از دفتر اشخاص</button><button type="button" className={counterpartyMode === "custom" ? "active" : ""} onClick={() => setCounterpartyMode("custom")}>فروشگاه / شرکت / شخص دیگر</button></div>
+-    {counterpartyMode === "person" ? <label>شخص مرتبط<select name="relatedPersonId" required value={relatedPersonId} onChange={(event) => setRelatedPersonId(event.target.value)}><option value="" disabled>انتخاب از دفتر</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><input type="hidden" name="counterpartyName" value={selectedPerson?.name ?? ""} /></label> : <><input type="hidden" name="relatedPersonId" value="" /><label>نام طرف حساب<input name="counterpartyName" required defaultValue={initialCheck?.relatedPersonId ? "" : initialCheck?.counterpartyName ?? ""} placeholder="مثلاً فروشگاه ایکس، شرکت آلفا یا رضا محمدی" /></label></>}
+-    <label className="balance-effect-toggle"><input type="checkbox" name="countInBalance" defaultChecked={initialCheck?.countInBalance ?? true} /><span><strong>در مانده حساب محاسبه شود</strong><small>اگر همین بدهی/طلب را قبلاً جدا ثبت کرده‌ای، خاموشش کن تا دوباره‌شماری نشود.</small></span></label>
+-    <div className="check-section-title"><strong>مشخصات سند</strong><small>اطلاعات روی برگه و سامانه صیاد</small></div>
+-    <div className="check-two-cols"><label>نوع چک<select name="checkType" value={checkType} onChange={(event) => setCheckType(event.target.value as CheckRecord["checkType"])}><option value="sayadi">صیادی</option><option value="guaranteed">تضمین‌شده بانکی</option><option value="other">سایر / قدیمی</option></select></label><label>بانک<input name="bankName" required defaultValue={initialCheck?.bankName ?? ""} placeholder="مثلاً بانک ملت" /></label></div>
+-    <div className="check-two-cols"><label>شعبه <small>(اختیاری)</small><input name="branchName" defaultValue={initialCheck?.branchName ?? ""} placeholder="نام یا کد شعبه" /></label><label>شماره برگه / سریال <small>(اختیاری)</small><input name="chequeNumber" inputMode="numeric" defaultValue={initialCheck?.chequeNumber ?? ""} placeholder="شماره چاپی چک" /></label></div>
+-    <label>شناسه صیادی {checkType !== "sayadi" && <small>(اختیاری)</small>}<input name="sayadId" inputMode="numeric" required={checkType === "sayadi"} maxLength={16} defaultValue={initialCheck?.sayadId ?? ""} placeholder="۱۶ رقم شناسه صیادی" /></label>
+-    <div className="check-two-cols"><label>وضعیت در صیاد<select name="sayadStatus" defaultValue={initialCheck?.sayadStatus ?? "not_registered"}><option value="not_registered">ثبت نشده / نامشخص</option><option value="registered">ثبت شده</option><option value="confirmed">توسط ذی‌نفع تأیید شده</option><option value="transferred">از طریق صیاد منتقل شده</option></select></label><label>وضعیت مالی<select name="status" defaultValue={initialCheck?.status ?? "open"}><option value="open">باز / در جریان</option><option value="cleared">وصول / پاس شده</option><option value="bounced">برگشتی</option><option value="cancelled">ابطال‌شده</option><option value="returned">عودت‌شده</option></select></label></div>
+-    <MoneyInput name="amount" label="مبلغ چک (تومان)" required defaultValue={initialCheck?.amount} placeholder="مثلاً ۲۵٬۰۰۰٬۰۰۰" />
+-    <label>بابت<input name="purpose" required defaultValue={initialCheck?.purpose ?? ""} placeholder="مثلاً اجاره، خرید کالا، تسویه حساب یا ضمانت" /></label>
+-    <div className="check-date-grid"><JalaliDatePicker name="issueDate" label="تاریخ صدور" optional initialValue={initialCheck?.issueDate ? isoToJalaliInput(initialCheck.issueDate) : ""} /><JalaliDatePicker name="dueDate" label="تاریخ سررسید" required initialValue={initialCheck ? isoToJalaliInput(initialCheck.dueDate) : ""} /></div>
+-    <div className="check-section-title"><strong>طرف‌های مندرج روی چک</strong><small>طرف حساب مالی با صادرکننده یا واگذارکننده الزاماً یکی نیست</small></div>
+-    <label>صادرکننده / صاحب حساب<input name="issuerName" required value={issuerName} onChange={(event) => setIssuerName(event.target.value)} placeholder={direction === "received" ? "نام صاحب حساب یا شرکت صادرکننده" : "نام صاحب حسابی که چک از آن صادر شده"} /></label>
+-    <label>در وجه / ذی‌نفع فعلی<input name="beneficiaryName" required value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder={direction === "issued" ? "نام شخص یا شرکت ذی‌نفع" : "نام ذی‌نفع ثبت‌شده در صیاد"} /></label>
+-    {direction === "received" && <label>واگذارکننده به من <small>(اگر چک شخص ثالث است)</small><input name="transferorName" defaultValue={initialCheck?.transferorName ?? ""} placeholder="مثلاً علی چکِ صادرشده توسط شخص دیگری را به من داده" /></label>}
+-    {direction === "issued" && <input type="hidden" name="transferorName" value="" />}
+-    <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={3} defaultValue={initialCheck?.note ?? ""} placeholder="شماره حساب، توضیح ضمانت، نحوه تحویل یا هر نکته مهم..." /></label>
+-    <p className="form-hint">برای چک صیادی جدید، ذی‌نفع، مبلغ و تاریخ باید با ا
