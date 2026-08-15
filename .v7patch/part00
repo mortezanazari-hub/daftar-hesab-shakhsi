@@ -1,0 +1,87 @@
+--- a/README.md
++++ b/README.md
+@@ -30,3 +30,5 @@
+ خروجی آماده انتشار در پوشه `static-dist` ساخته می‌شود. انتشار GitHub Pages با هر بار ارسال تغییر به شاخه `main` به‌صورت خودکار انجام می‌شود.
+ 
+ - ویرایش و حذف خود گروه دُنگی، مدیریت اعضای فعال و حفظ تاریخچه اعضای سابق
++
++- دفتر مستقل چک‌های دریافتی و پرداختی با بانک، شناسه صیادی، صادرکننده، ذی‌نفع، واگذارکننده، سررسید، بابت و وضعیت وصول/برگشت
+--- a/app/FinanceApp.tsx
++++ b/app/FinanceApp.tsx
+@@ -11,6 +11,7 @@
+   type Expense,
+   type FinanceData,
+   type Group,
++  type CheckRecord,
+   type Loan,
+   type LoanInstallment,
+   type Person,
+@@ -18,16 +19,19 @@
+   type SettlementSuggestion,
+ } from "./local-db";
+ 
+-type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "tools" | null;
+-type Tab = "home" | "ledger" | "groups" | "loans" | "calendar";
++type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "tools" | null;
++type Tab = "home" | "ledger" | "groups" | "loans" | "checks" | "calendar";
+ type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
+ 
+ type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
+ type DueItem =
+   | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; entry: Entry }
+-  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment };
++  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment }
++  | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; check: CheckRecord };
+ 
+ const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
++const checkStatusLabel: Record<CheckRecord["status"], string> = { open: "باز / در جریان", cleared: "وصول / پاس شده", bounced: "برگشتی", cancelled: "ابطال‌شده", returned: "عودت‌شده" };
++const sayadStatusLabel: Record<CheckRecord["sayadStatus"], string> = { not_registered: "ثبت نشده", registered: "ثبت شده", confirmed: "تأیید شده", transferred: "منتقل شده" };
+ 
+ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+   const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: "app-icon", "data-icon": name, "aria-hidden": true };
+@@ -57,10 +61,10 @@
+   debt: { label: "بدهی", icon: "debt", tone: "coral" },
+   receivable: { label: "طلب", icon: "receivable", tone: "green" },
+   installment: { label: "قسط قدیمی", icon: "installment", tone: "amber" },
+-  check: { label: "چک", icon: "check", tone: "violet" },
++  check: { label: "چک قدیمی", icon: "check", tone: "violet" },
+ };
+ 
+-const quickEntryKinds = ["debt", "receivable", "check"] as const;
++const quickEntryKinds = ["debt", "receivable"] as const;
+ 
+ const number = new Intl.NumberFormat("fa-IR");
+ const money = (value: number) => `${number.format(value)} تومان`;
+@@ -85,6 +89,7 @@
+   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+   const [editingLoanId, setEditingLoanId] = useState<number | null>(null);
++  const [editingCheckId, setEditingCheckId] = useState<number | null>(null);
+   const [paymentLoanId, setPaymentLoanId] = useState<number | null>(null);
+   const [paymentInstallmentId, setPaymentInstallmentId] = useState<number | null>(null);
+   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+@@ -98,6 +103,8 @@
+   const [groupSearch, setGroupSearch] = useState("");
+   const [loanSearch, setLoanSearch] = useState("");
+   const [loanFilter, setLoanFilter] = useState<"active" | "settled" | "all">("active");
++  const [checkSearch, setCheckSearch] = useState("");
++  const [checkFilter, setCheckFilter] = useState<"active" | "received" | "issued" | "closed" | "all">("active");
+ 
+   const load = useCallback(async () => {
+     try {
+@@ -117,23 +124,28 @@
+ 
+   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
+   const openEntries = data?.entries.filter((entry) => entry.status === "open") ?? [];
+-  const totalReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
+-  const peopleDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
++  const linkedReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
++  const linkedDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
++  const unlinkedCheckReceivable = data?.checks.filter((check) => check.financialOpen && check.countInBalance && !check.relatedPersonId && check.direction === "received").reduce((sum, check) => sum + check.amount, 0) ?? 0;
++  const unlinkedCheckDebt = data?.checks.filter((check) => check.financialOpen && check.countInBalance && !check.relatedPersonId && check.direction === "issued").reduce((sum, check) => sum + check.amount, 0) ?? 0;
++  const totalReceivable = linkedReceivable + unlinkedCheckReceivable;
+   const loanDebt = data?.loans.reduce((sum, loan) => sum + loan.remainingAmount, 0) ?? 0;
+-  const totalDebt = peopleDebt + loanDebt;
++  const totalDebt = linkedDebt + loanDebt + unlinkedCheckDebt;
+   const net = totalReceivable - totalDebt;
+   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
