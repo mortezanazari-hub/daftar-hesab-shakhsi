@@ -1,0 +1,67 @@
+diff --git a/app/FinanceApp.tsx b/app/FinanceApp.tsx
+index 23ec4bb..793fb44 100644
+--- a/app/FinanceApp.tsx
++++ b/app/FinanceApp.tsx
+@@ -25,9 +25,9 @@ type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" |
+ 
+ type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
+ type DueItem =
+-  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; entry: Entry }
+-  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; loan: Loan; installment: LoanInstallment }
+-  | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; check: CheckRecord };
++  | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; entry: Entry }
++  | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; loan: Loan; installment: LoanInstallment }
++  | { id: string; source: "check"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; check: CheckRecord };
+ 
+ const providerTypeLabel: Record<Loan["providerType"], string> = { bank: "بانک", store: "فروشگاه", other: "مؤسسه / سایر" };
+ const checkStatusLabel: Record<CheckRecord["status"], string> = { open: "در جریان", cleared: "پاس شده", bounced: "برگشت خورده", cancelled: "باطل شده", returned: "برگشته" };
+@@ -106,6 +106,8 @@ export function FinanceApp() {
+   const [loanFilter, setLoanFilter] = useState<"active" | "settled" | "all">("active");
+   const [checkSearch, setCheckSearch] = useState("");
+   const [checkFilter, setCheckFilter] = useState<"active" | "received" | "issued" | "closed" | "all">("active");
++  const [dueRange, setDueRange] = useState<"current" | "next" | "all">("current");
++  const [hideCompletedDue, setHideCompletedDue] = useState(false);
+ 
+   const load = useCallback(async () => {
+     try {
+@@ -124,7 +126,6 @@ export function FinanceApp() {
+   }, []);
+ 
+   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
+-  const openEntries = data?.entries.filter((entry) => entry.status === "open") ?? [];
+   const linkedReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
+   const linkedDebt = data?.accounts.filter((account) => account.finalBalance < 0).reduce((sum, account) => sum - account.finalBalance, 0) ?? 0;
+   const unlinkedCheckReceivable = data?.checks.filter((check) => check.financialOpen && check.countInBalance && !check.relatedPersonId && check.direction === "received").reduce((sum, check) => sum + check.amount, 0) ?? 0;
+@@ -145,11 +146,58 @@ export function FinanceApp() {
+   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
+   const today = todayIso();
+   const dueItems: DueItem[] = [
+-    ...openEntries.filter((entry) => entry.dueDate).map((entry) => ({ id: `entry-${entry.id}`, source: "entry" as const, date: entry.dueDate as string, title: entry.title, detail: `${entry.personName} • ${entry.kind === "check" ? "چک قدیمی" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`, amount: entry.amount, overdue: Boolean(entry.dueDate && entry.dueDate < today), entry })),
+-    ...(data?.loans ?? []).flatMap((loan) => loan.installments.filter((installment) => installment.remainingAmount > 0).map((installment) => ({ id: `loan-${loan.id}-${installment.id}`, source: "loan" as const, date: installment.dueDate, title: loan.title, detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`, amount: installment.remainingAmount, overdue: installment.overdue, loan, installment }))),
+-    ...(data?.checks ?? []).filter((check) => check.financialOpen).map((check) => ({ id: `check-${check.id}`, source: "check" as const, date: check.dueDate, title: `${check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • ${check.purpose}`, detail: `${check.counterpartyName} • ${check.bankName}${check.sayadId ? ` • صیاد ${check.sayadId.slice(-6)}` : ""}`, amount: check.amount, overdue: check.overdue, check })),
+-  ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+-  const upcoming = dueItems;
++    ...(data?.entries ?? []).filter((entry) => entry.dueDate).map((entry) => ({
++      id: `entry-${entry.id}`,
++      source: "entry" as const,
++      date: entry.dueDate as string,
++      title: entry.title,
++      detail: `${entry.personName} • ${entry.kind === "check" ? "چک قدیمی" : entry.kind === "installment" ? "قسط قدیمی" : entry.direction === "receivable" ? "طلب" : "بدهی"}`,
++      amount: entry.amount,
++      overdue: entry.status === "open" && Boolean(entry.dueDate && entry.dueDate < today),
++      completed: entry.status === "paid",
++      completionLabel: "تسویه شد",
++      entry,
++    })),
++    ...(data?.loans ?? []).flatMap((loan) => loan.installments.map((installment) => ({
++      id: `loan-${loan.id}-${installment.id}`,
++      source: "loan" as const,
++      date: installment.dueDate,
++      title: loan.title,
++      detail: `${loan.providerName} • قسط ${number.format(installment.number)} از ${number.format(loan.installmentCount)}`,
++      amount: installment.status === "paid" ? installment.amount : installment.remainingAmount,
++      overdue: installment.status !== "paid" && installment.overdue,
++      completed: installment.status === "paid",
++      completionLabel: "پرداخت شد",
++      loan,
++      installment,
