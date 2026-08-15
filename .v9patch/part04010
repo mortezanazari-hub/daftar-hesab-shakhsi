@@ -1,0 +1,7 @@
+-range-filter { margin: 0; }
++.due-range-filter button { min-width: 0; flex: 1; padding: 7px 9px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
++.due-range-filter button strong { font-size: 8px; }
++.due-range-filter button small { color: inherit; opacity: .72; font-size: 6.5px; font-weight: 600; }
++.hide-completed-due { min-width: 116px; border: 1px solid var(--line); border-radius: 11px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 7px; color: var(--muted); background: var(--surface); font-size: 7px; font-weight: 800; cursor: pointer; }
++.hide-completed-due b { min-width: 21px; height: 21px; padding: 0 5px; border-radius: 99px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); font-size: 7px; }
++.hide-completed-due.active { border-color: #a8c2b4; color: var(--green); background: var(--green-soft); }
