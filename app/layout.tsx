@@ -16,6 +16,13 @@ export async function generateMetadata(): Promise<Metadata> {
     description,
     applicationName: "هم‌حساب",
     manifest: "/manifest.webmanifest",
+    icons: {
+      icon: [
+        { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+      apple: "/icon-512.png",
+    },
     appleWebApp: { capable: true, title: "هم‌حساب", statusBarStyle: "black-translucent" },
     openGraph: { title, description, type: "website", url: origin, locale: "fa_IR", images: [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "هم‌حساب — دفتر مالی شخصی و مدیریت دُنگ" }] },
     twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },

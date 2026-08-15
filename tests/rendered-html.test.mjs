@@ -19,6 +19,8 @@ test("defines the Persian mobile finance application shell", async () => {
   assert.match(app, /تاریخ سررسید شمسی/);
   assert.match(app, /jalaliInputToIso/);
   assert.match(manifest, /display: "standalone"/);
+  assert.match(manifest, /icon-192\.png/);
+  assert.match(manifest, /icon-512\.png/);
   assert.doesNotMatch(`${layout}\n${app}`, /codex-preview|react-loading-skeleton/i);
 });
 
