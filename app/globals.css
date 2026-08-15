@@ -443,3 +443,47 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .check-summary-grid.personal { grid-template-columns: repeat(3,1fr); }.check-summary-grid.personal > div:first-child { grid-column: auto; }
   .check-current-holder { grid-template-columns: 1fr; }
 }
+
+
+/* v9 — monthly due filters, completed to-do states and share steppers */
+.due-toolbar { margin: -2px 0 13px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.due-range-filter { margin: 0; }
+.due-range-filter button { min-width: 0; flex: 1; padding: 7px 9px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.due-range-filter button strong { font-size: 8px; }
+.due-range-filter button small { color: inherit; opacity: .72; font-size: 6.5px; font-weight: 600; }
+.hide-completed-due { min-width: 116px; border: 1px solid var(--line); border-radius: 11px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 7px; color: var(--muted); background: var(--surface); font-size: 7px; font-weight: 800; cursor: pointer; }
+.hide-completed-due b { min-width: 21px; height: 21px; padding: 0 5px; border-radius: 99px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); font-size: 7px; }
+.hide-completed-due.active { border-color: #a8c2b4; color: var(--green); background: var(--green-soft); }
+.hide-completed-due.active b { color: #fff; background: var(--green); }
+.timeline-row.completed { opacity: .68; }
+.timeline-row.completed .due-copy strong,
+.timeline-row.completed .due-amount > strong { text-decoration: line-through; text-decoration-thickness: 1.5px; text-decoration-color: #9ea7a2; }
+.date-badge.completed { color: #728079; background: #eef2ef; }
+.date-badge.completed strong { text-decoration: line-through; }
+.due-item-row.completed { background: #fafbf9; }
+.due-item-row.completed .due-source { color: var(--green); background: var(--green-soft); }
+.due-item-row.completed .due-copy small { opacity: .8; }
+.text-muted { color: #87918c !important; }
+.due-completed-label { min-height: 25px; padding: 5px 7px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; color: var(--green); background: var(--green-soft); font-size: 7px; font-weight: 900; white-space: nowrap; }
+.due-completed-label svg { flex: 0 0 auto; }
+
+.share-stepper-field, .participant-share { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 7px; font-weight: 800; }
+.share-stepper-field { margin-right: auto; }
+.share-stepper { width: 116px; height: 36px; border: 1px solid #d8d3ca; border-radius: 11px; display: grid; grid-template-columns: 32px 1fr 32px; overflow: hidden; direction: ltr; background: #fbfaf6; }
+.share-stepper button { width: 32px; height: 34px; padding: 0; border: 0; display: grid; place-items: center; color: var(--green); background: #eef4f0; font-size: 17px; font-weight: 800; line-height: 1; cursor: pointer; }
+.share-stepper button:disabled { color: #b7bcb9; background: #f3f1ec; cursor: default; }
+.bottom-sheet .share-stepper input { width: 50px; height: 34px; padding: 0 3px; border: 0; border-right: 1px solid #e1ddd5; border-left: 1px solid #e1ddd5; border-radius: 0; text-align: center; direction: ltr; background: #fffefb; font-size: 10px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.participant { grid-template-columns: 1fr 145px; }
+.participant-share { justify-content: flex-end; }
+.selected-members .selected { min-width: 0; }
+.selected-members .share-stepper-field > span { white-space: nowrap; }
+
+@media (max-width: 430px) {
+  .due-toolbar { grid-template-columns: 1fr; }
+  .hide-completed-due { min-height: 38px; width: 100%; }
+  .participant { grid-template-columns: 1fr 132px; }
+  .share-stepper-field { gap: 5px; }
+  .share-stepper-field > span { display: none; }
+  .share-stepper { width: 108px; grid-template-columns: 30px 1fr 30px; }
+  .share-stepper button { width: 30px; }
+}
