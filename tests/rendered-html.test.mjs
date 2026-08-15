@@ -24,17 +24,19 @@ test("defines the Persian mobile finance application shell", async () => {
   assert.doesNotMatch(`${layout}\n${app}`, /codex-preview|react-loading-skeleton/i);
 });
 
-test("ships persistent finance capabilities and no starter preview", async () => {
-  const [hosting, route, schema] = await Promise.all([
+test("ships a device-local offline database and no starter preview", async () => {
+  const [hosting, localDb, serviceWorker] = await Promise.all([
     readFile(new URL(".openai/hosting.json", root), "utf8"),
-    readFile(new URL("app/api/finance/route.ts", root), "utf8"),
-    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
   ]);
-  assert.match(hosting, /"d1": "DB"/);
-  assert.match(route, /add_entry/);
-  assert.match(route, /add_group/);
-  assert.match(route, /add_expense/);
-  assert.match(schema, /ledgerEntries/);
-  assert.match(schema, /expenseShares/);
+  assert.match(hosting, /"d1": null/);
+  assert.match(localDb, /indexedDB\.open/);
+  assert.match(localDb, /add_entry/);
+  assert.match(localDb, /add_group/);
+  assert.match(localDb, /add_expense/);
+  assert.match(serviceWorker, /hamhesab-offline/);
+  assert.match(serviceWorker, /caches\.match/);
+  await assert.rejects(access(new URL("app/api/finance/route.ts", root)));
   await assert.rejects(access(new URL("app/_sites-preview/SkeletonPreview.tsx", root)));
 });

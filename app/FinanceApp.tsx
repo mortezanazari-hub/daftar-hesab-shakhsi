@@ -1,16 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { jalaliInputToIso, persianDate, todayIso, todayJalaliInput } from "./jalali";
-
-type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
-type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
-type GroupMember = { personId: number; name: string; shareWeight: number };
-type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string };
-type Balance = { personId: number; name: string; paid: number; owed: number; balance: number };
-type Settlement = { from: string; to: string; amount: number };
-type Group = { id: number; name: string; members: GroupMember[]; expenses: Expense[]; totalSpent: number; balances: Balance[]; settlements: Settlement[] };
-type FinanceData = { persons: Person[]; entries: Entry[]; groups: Group[] };
+import { jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
+import { applyFinanceOperation, getFinanceData, type Entry, type FinanceData, type Group, type Person } from "./local-db";
 type Sheet = "actions" | "person" | "entry" | "group" | "expense" | null;
 type Tab = "home" | "ledger" | "groups" | "calendar";
 
@@ -41,18 +33,19 @@ export function FinanceApp() {
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch("/api/finance", { cache: "no-store" });
-      const result = await response.json() as FinanceData & { error?: string };
-      if (!response.ok) throw new Error(result.error || "اطلاعات دریافت نشد.");
+      const result = await getFinanceData();
       setData(result);
       setError("");
-      if (!expenseGroupId && result.groups[0]) setExpenseGroupId(result.groups[0].id);
+      setExpenseGroupId((current) => current ?? result.groups[0]?.id ?? null);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "خطا در دریافت اطلاعات");
+      setError(loadError instanceof Error ? loadError.message : "دفتر داخلی برنامه باز نشد.");
     }
-  }, [expenseGroupId]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+  }, []);
 
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
   const self = data?.persons.find((person) => person.isSelf);
@@ -73,9 +66,7 @@ export function FinanceApp() {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error || "ثبت انجام نشد.");
+      await applyFinanceOperation(payload);
       setSheet(null);
       await load();
     } catch (postError) {
@@ -144,6 +135,7 @@ export function FinanceApp() {
         <div>
           <p className="eyebrow">دفتر مالی شخصی</p>
           <h1>هم‌حساب</h1>
+          <span className="local-badge">● ذخیره امن روی گوشی</span>
         </div>
         <button className="avatar" aria-label="پروفایل من">م</button>
       </header>
@@ -315,8 +307,7 @@ function EntryForm({ kind, people, onNeedPerson, onSubmit, busy }: { kind: strin
     {(kind === "installment" || kind === "check") && <label>نوع حساب<select name="direction"><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}
     <label>عنوان<input name="title" required placeholder={kind === "installment" ? "مثلاً قسط وام خودرو" : kind === "check" ? "مثلاً چک اجاره" : "بابت چه چیزی؟"} /></label>
     <label>مبلغ (تومان)<input name="amount" inputMode="numeric" type="number" min="1" required placeholder="مثلاً ۲۵۰۰۰۰۰" /></label>
-    <label>تاریخ سررسید شمسی <small>(اختیاری)</small><input className="jalali-input" name="dueDate" inputMode="numeric" placeholder="۱۴۰۵/۰۵/۲۴" autoComplete="off" /></label>
-    <p className="date-help">تاریخ را با سال، ماه و روز شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۵/۲۴</p>
+    <JalaliDatePicker name="dueDate" label="تاریخ سررسید شمسی" optional />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="توضیح کوتاه..." /></label>
     <SubmitButton busy={busy} label={`ثبت ${meta.label}`} />
   </form>;
@@ -342,8 +333,7 @@ function ExpenseForm({ groups, selectedGroup, onGroupChange, onSubmit, onNeedGro
     <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue=""><option value="" disabled>انتخاب پرداخت‌کننده</option>{selectedGroup?.members.map((member) => <option key={member.personId} value={member.personId}>{member.name}</option>)}</select></label>
     <label>بابت چه چیزی؟<input name="title" required placeholder="مثلاً خرید سوپرمارکت" /></label>
     <label>مبلغ کل (تومان)<input name="amount" type="number" inputMode="numeric" min="1" required placeholder="مثلاً ۱۸۵۰۰۰۰" /></label>
-    <label>تاریخ خرید شمسی<input className="jalali-input" name="expenseDate" inputMode="numeric" defaultValue={todayJalaliInput()} placeholder="۱۴۰۵/۰۵/۲۴" autoComplete="off" required /></label>
-    <p className="date-help">تاریخ امروز به‌صورت شمسی درج شده و قابل ویرایش است.</p>
+    <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday required />
     {selectedGroup && <div className="split-preview"><strong>تقسیم طبق سهم</strong><div>{selectedGroup.members.map((member) => <span key={member.personId}>{member.name}: {number.format(member.shareWeight)} سهم</span>)}</div></div>}
     <SubmitButton busy={busy} label="ثبت و محاسبه دُنگ‌ها" />
   </form>;
@@ -355,4 +345,64 @@ function SubmitButton({ busy, label }: { busy: boolean; label: string }) {
 
 function Loading() {
   return <div className="loading"><span /><span /><span /><p>دفترت را باز می‌کنیم...</p></div>;
+}
+
+function JalaliDatePicker({ name, label, optional = false, required = false, defaultToday = false }: { name: string; label: string; optional?: boolean; required?: boolean; defaultToday?: boolean }) {
+  const today = jalaliTodayParts();
+  const [value, setValue] = useState(defaultToday ? todayJalaliInput() : "");
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState({ year: today.jy, month: today.jm });
+  const firstWeekday = jalaliFirstWeekday(view.year, view.month);
+  const days = jalaliMonthDays(view.year, view.month);
+  const normalized = normalizeDigits(value);
+  const selected = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(normalized);
+  const selectedDay = selected && Number(selected[1]) === view.year && Number(selected[2]) === view.month ? Number(selected[3]) : null;
+
+  function moveMonth(delta: number) {
+    setView((current) => {
+      let month = current.month + delta;
+      let year = current.year;
+      if (month > 12) { month = 1; year += 1; }
+      if (month < 1) { month = 12; year -= 1; }
+      return { year, month };
+    });
+  }
+
+  function chooseDay(day: number) {
+    setValue(jalaliPartsToInput(view.year, view.month, day));
+    setOpen(false);
+  }
+
+  function chooseToday() {
+    setView({ year: today.jy, month: today.jm });
+    setValue(todayJalaliInput());
+    setOpen(false);
+  }
+
+  return <div className="date-picker-field">
+    <span className="date-label">{label} {optional && <small>(اختیاری)</small>}</span>
+    <div className="date-input-wrap">
+      <input className="jalali-input" name={name} value={value} readOnly required={required} placeholder="انتخاب تاریخ" onClick={() => setOpen((current) => !current)} aria-haspopup="dialog" aria-expanded={open} />
+      <button type="button" className="calendar-trigger" onClick={() => setOpen((current) => !current)} aria-label={`باز کردن انتخاب‌گر ${label}`}>ت</button>
+    </div>
+    {open && <div className="jalali-calendar" role="dialog" aria-label={label}>
+      <div className="calendar-head">
+        <button type="button" onClick={() => moveMonth(1)} aria-label="ماه بعد">‹</button>
+        <strong>{jalaliMonthName(view.month)} {toPersianDigits(view.year)}</strong>
+        <button type="button" onClick={() => moveMonth(-1)} aria-label="ماه قبل">›</button>
+      </div>
+      <div className="weekdays">{["ش", "ی", "د", "س", "چ", "پ", "ج"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="calendar-days">
+        {Array.from({ length: firstWeekday }, (_, index) => <span key={`empty-${index}`} />)}
+        {Array.from({ length: days }, (_, index) => index + 1).map((day) => {
+          const isToday = view.year === today.jy && view.month === today.jm && day === today.jd;
+          return <button type="button" key={day} className={`${selectedDay === day ? "selected" : ""} ${isToday ? "today" : ""}`} onClick={() => chooseDay(day)}>{toPersianDigits(day)}</button>;
+        })}
+      </div>
+      <div className="calendar-actions">
+        {optional && value && <button type="button" onClick={() => { setValue(""); setOpen(false); }}>پاک کردن</button>}
+        <button type="button" onClick={chooseToday}>امروز</button>
+      </div>
+    </div>}
+  </div>;
 }
