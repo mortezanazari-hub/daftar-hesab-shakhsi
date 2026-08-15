@@ -894,12 +894,12 @@ function LoanForm({ initialLoan, onSubmit, busy }: { initialLoan?: Loan; onSubmi
     {scheduleLocked ? <div className="locked-loan-schedule"><div><Icon name="calendar-check" size={18} /><span><strong>برنامه قسط‌ها شروع شده</strong><small>برای اینکه پرداخت‌های قبلی به‌هم نریزد، مبلغ و تاریخ‌ها دیگر تغییر نمی‌کنند.</small></span></div><div className="locked-loan-grid"><span><small>کل</small><b>{money(initialLoan?.totalPayable ?? 0)}</b></span><span><small>تعداد</small><b>{number.format(initialLoan?.installmentCount ?? 0)} قسط</b></span><span><small>اولین سررسید</small><b>{persianDate(initialLoan?.firstDueDate, true)}</b></span><span><small>مانده</small><b>{money(initialLoan?.remainingAmount ?? 0)}</b></span></div><input type="hidden" name="principalAmount" value={initialLoan?.principalAmount ?? 0} /><input type="hidden" name="totalPayable" value={initialLoan?.totalPayable ?? 0} /><input type="hidden" name="downPayment" value={initialLoan?.downPayment ?? 0} /><input type="hidden" name="installmentCount" value={initialLoan?.installmentCount ?? 1} /><input type="hidden" name="intervalMonths" value={initialLoan?.intervalMonths ?? 1} /><input type="hidden" name="firstDueDate" value={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} /></div> : <>
       <MoneyInput name="totalPayable" label="در مجموع چقدر باید بدم؟" required defaultValue={initialLoan?.totalPayable} placeholder="کل مبلغی که پرداخت می‌کنی" onValueChange={setTotalPayable} />
       <MoneyInput name="downPayment" label="پیش‌پرداخت (اگر داشتی)" defaultValue={initialLoan?.downPayment} placeholder="صفر هم می‌تونه باشه" onValueChange={setDownPayment} />
-      <label>چند قسط؟<input name="installmentCount" type="number" min="1" max="600" required value={installmentCount} onChange={(event) => setInstallmentCount(Math.max(1, Number(event.target.value) || 1))} /></label>
+      <label>چند قسط؟<CountStepper name="installmentCount" label="تعداد اقساط" min={1} max={600} required value={installmentCount} onChange={setInstallmentCount} /></label>
       <JalaliDatePicker name="firstDueDate" label="اولین قسط کیه؟" required initialValue={initialLoan ? isoToJalaliInput(initialLoan.firstDueDate) : ""} />
       {financedAmount > 0 && installmentCount > 0 && <div className="loan-preview personal"><span><small>هر قسط تقریباً</small><strong>{money(baseInstallment)}</strong></span><span><small>قسط آخر</small><strong>{money(lastInstallment)}</strong></span></div>}
       <details className="advanced-fields loan-advanced"><summary>جزئیات بیشتر <small>اختیاری</small></summary><div>
         <MoneyInput name="principalAmount" label="اصل وام / قیمت پایه" defaultValue={initialLoan?.principalAmount} placeholder="برای دیدن هزینه اضافه" onValueChange={setPrincipalAmount} />
-        <label>هر چند ماه یک‌بار؟<input name="intervalMonths" type="number" min="1" max="24" required value={intervalMonths} onChange={(event) => setIntervalMonths(Math.max(1, Number(event.target.value) || 1))} /></label>
+        <label>هر چند ماه یک‌بار؟<CountStepper name="intervalMonths" label="فاصله اقساط به ماه" min={1} max={24} required value={intervalMonths} onChange={setIntervalMonths} /></label>
         <label>شماره قرارداد <small>(اختیاری)</small><input name="contractNumber" defaultValue={initialLoan?.contractNumber ?? ""} /></label>
         {financeCost > 0 && <p className="loan-finance-cost">هزینه اضافه نسبت به مبلغ پایه: <b>{money(financeCost)}</b></p>}
       </div></details>
@@ -920,6 +920,15 @@ function LoanPaymentForm({ loan, installment, onSubmit, busy }: { loan: Loan; in
     <p className="form-hint">پرداخت جزئی هم مجاز است. تا وقتی مجموع پرداخت‌ها به مبلغ قسط نرسد، قسط باز باقی می‌ماند.</p>
     <SubmitButton busy={busy} label="ثبت پرداخت" />
   </form>;
+}
+
+function CountStepper({ name, value, onChange, label, min = 1, max = 99, required = false }: { name: string; value: number; onChange: (value: number) => void; label: string; min?: number; max?: number; required?: boolean }) {
+  const safeValue = Math.max(min, Math.min(max, Number(value) || min));
+  return <div className="share-stepper number-stepper">
+    <button type="button" onClick={() => onChange(Math.max(min, safeValue - 1))} disabled={safeValue <= min} aria-label={`کم کردن ${label}`}>−</button>
+    <input name={name} aria-label={label} type="number" min={min} max={max} required={required} value={safeValue} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value) || min)))} />
+    <button type="button" onClick={() => onChange(Math.min(max, safeValue + 1))} disabled={safeValue >= max} aria-label={`زیاد کردن ${label}`}>+</button>
+  </div>;
 }
 
 function ShareStepper({ value, onChange, label }: { value: number; onChange: (value: number) => void; label: string }) {
