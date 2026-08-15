@@ -1,0 +1,34 @@
+           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
+           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}
+           {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
+@@ -498,6 +571,7 @@
+           {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} />}
+           {sheet === "loan-form" && <LoanForm key={editingLoan?.id ?? "new-loan"} initialLoan={editingLoan} onSubmit={submitLoan} busy={busy} />}
+           {sheet === "loan-payment" && paymentLoan && paymentInstallment && <LoanPaymentForm loan={paymentLoan} installment={paymentInstallment} onSubmit={submitLoanPayment} busy={busy} />}
++          {sheet === "check-form" && <CheckForm key={editingCheck?.id ?? "new-check"} initialCheck={editingCheck} people={people} onSubmit={submitCheck} busy={busy} />}
+           {sheet === "tools" && <ToolsSheet onExport={handleExport} onImport={handleImport} busy={busy} />}
+         </section>
+       </div>}
+@@ -522,11 +596,25 @@
+   </article>;
+ }
+ 
+-function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPayment, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPayment: () => void; compact?: boolean }) {
++function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
++  const icon: IconName = item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.source === "check" ? "check" : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt";
++  const positive = item.source === "check" ? item.check.direction === "received" : item.source === "entry" && item.entry.direction === "receivable";
+   return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
+-    <span className={`due-source ${item.source}`}><Icon name={item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt"} size={16} /></span>
++    <span className={`due-source ${item.source}`}><Icon name={icon} size={16} /></span>
+     <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
+-    <div className="due-amount"><strong className={item.source === "entry" && item.entry.direction === "receivable" ? "text-green" : "text-coral"}>{item.source === "entry" && item.entry.direction === "receivable" ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <button onClick={onLoanPayment}>ثبت پرداخت</button> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
++    <div className="due-amount"><strong className={positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <button onClick={onLoanPayment}>ثبت پرداخت</button> : item.source === "check" ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
++  </article>;
++}
++
++function CheckCard({ check, onEdit, onDelete, onStatus }: { check: CheckRecord; onEdit: () => void; onDelete: () => void; onStatus: (status: CheckRecord["status"]) => void }) {
++  const stateTone = check.status === "bounced" ? "danger" : check.financialOpen ? "active" : "closed";
++  return <article className={`check-card ${check.direction} ${stateTone}`}>
++    <div className="check-card-head"><span className="check-doc-icon"><Icon name="check" size={19} /></span><div><small>{check.direction === "received" ? "چک دریافتی" : "چک پرداختی"} • {check.bankName}{check.branchName ? ` / ${check.branchName}` : ""}</small><h3>{check.purpose}</h3><i>سررسید {persianDate(check.dueDate, true)}</i></div><span className="check-card-actions"><button onClick={onEdit} aria-label="ویرایش چک"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف چک"><Icon name="trash" size={13} /></button></span></div>
++    <div className="check-amount-line"><strong className={check.direction === "received" ? "text-green" : "text-coral"}>{check.direction === "received" ? "+" : "−"}{money(check.amount)}</strong><span className={`check-status-pill ${stateTone}`}>{checkStatusLabel[check.status]}</span></div>
++    <div className="check-parties"><span><small>صادرکننده / صاحب حساب</small><b>{check.issuerName}</b></span><span><small>در وجه / ذی‌نفع</small><b>{check.beneficiaryName}</b></span>{check.transferorName && <span><small>واگذارکننده به من</small><b>{check.transferorName}</b></span>}<span><small>طرف حساب مالی</small><b>{check.counterpartyName}{check.relatedPersonId ? " • دفتر اشخاص" : " • خارج دفتر"}</b></span></div>
