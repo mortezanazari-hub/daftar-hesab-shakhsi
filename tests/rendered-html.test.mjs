@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v8/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v9/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -235,4 +235,14 @@ test("uses plus and minus steppers for small counting fields", async () => {
   assert.match(app, /name="installmentCount" label="تعداد اقساط" min=\{1\} max=\{600\}/);
   assert.match(app, /name="intervalMonths" label="فاصله اقساط به ماه" min=\{1\} max=\{24\}/);
   assert.match(app, /className="share-stepper number-stepper"/);
+});
+
+
+test("keeps cheque management directly accessible from the main navigation", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /active=\{tab === "checks"\} icon="check" label="چک‌ها" onClick=\{openChecks\}/);
+  assert.match(css, /grid-template-columns: repeat\(6, 1fr\)/);
 });
