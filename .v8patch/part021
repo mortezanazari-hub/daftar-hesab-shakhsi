@@ -1,0 +1,51 @@
+طلاعات ثبت‌شده در صیاد هم‌خوان باشد. «واگذارکننده» را فقط وقتی پر کن که چک شخص ثالث از طریق انتقال به تو رسیده باشد.</p>
+-    <SubmitButton busy={busy} label={initialCheck ? "ذخیره تغییرات چک" : "ثبت چک"} />
++    <div className="check-counterparty-tabs"><button type="button" className={counterpartyMode === "person" ? "active" : ""} onClick={() => setCounterpartyMode("person")}>از آدم‌های دفتر</button><button type="button" className={counterpartyMode === "custom" ? "active" : ""} onClick={() => setCounterpartyMode("custom")}>شخص / فروشگاه دیگر</button></div>
++    {counterpartyMode === "person" ? <label>{direction === "received" ? "از چه کسی گرفتم؟" : "به چه کسی دادم؟"}<select name="relatedPersonId" required value={relatedPersonId} onChange={(event) => setRelatedPersonId(event.target.value)}><option value="" disabled>انتخاب شخص</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><input type="hidden" name="counterpartyName" value={partyName} /></label> : <><input type="hidden" name="relatedPersonId" value="" /><label>{direction === "received" ? "از چه کسی گرفتم؟" : "به چه کسی دادم؟"}<input name="counterpartyName" required value={customCounterparty} onChange={(event) => setCustomCounterparty(event.target.value)} placeholder="مثلاً علی، فروشگاه ایکس یا شرکت آلفا" /></label></>}
++    <MoneyInput name="amount" label="مبلغ (تومان)" required defaultValue={initialCheck?.amount} placeholder="مثلاً ۲۵٬۰۰۰٬۰۰۰" />
++    <label>بابت چی؟<input name="purpose" required defaultValue={initialCheck?.purpose ?? ""} placeholder="مثلاً اجاره، خرید یا تسویه" /></label>
++    <JalaliDatePicker name="dueDate" label="کی باید پاس بشه؟" required initialValue={initialCheck ? isoToJalaliInput(initialCheck.dueDate) : ""} />
++    <label>کدوم بانک؟<input name="bankName" required defaultValue={initialCheck?.bankName ?? ""} placeholder="مثلاً بانک ملت" /></label>
++    <label>شناسه صیاد <small>(اختیاری؛ بعداً هم می‌تونی اضافه کنی)</small><input name="sayadId" inputMode="numeric" maxLength={16} defaultValue={initialCheck?.sayadId ?? ""} placeholder="۱۶ رقم" /></label>
++    <details className="advanced-fields"><summary>جزئیات بیشتر <small>اختیاری</small></summary><div>
++      <label className="balance-effect-toggle"><input type="checkbox" name="countInBalance" defaultChecked={initialCheck?.countInBalance ?? true} /><span><strong>این چک خودش روی حساب اثر بگذارد</strong><small>اگر بدهی یا طلبش را قبلاً جدا ثبت کردی، خاموشش کن.</small></span></label>
++      <div className="check-two-cols"><label>نوع چک<select name="checkType" value={checkType} onChange={(event) => setCheckType(event.target.value as CheckRecord["checkType"])}><option value="sayadi">صیادی</option><option value="guaranteed">تضمین‌شده بانکی</option><option value="other">سایر / قدیمی</option></select></label><label>شعبه<input name="branchName" defaultValue={initialCheck?.branchName ?? ""} placeholder="اختیاری" /></label></div>
++      <label>شماره برگه / سریال <small>(اختیاری)</small><input name="chequeNumber" inputMode="numeric" defaultValue={initialCheck?.chequeNumber ?? ""} /></label>
++      <JalaliDatePicker name="issueDate" label="تاریخ صدور" optional initialValue={initialCheck?.issueDate ? isoToJalaliInput(initialCheck.issueDate) : ""} />
++      <div className="check-two-cols"><label>وضعیت صیاد<select name="sayadStatus" defaultValue={initialCheck?.sayadStatus ?? "not_registered"}><option value="not_registered">نامشخص / ثبت نشده</option><option value="registered">ثبت شده</option><option value="confirmed">تأیید شده</option><option value="transferred">منتقل شده</option></select></label><label>وضعیت چک<select name="status" defaultValue={initialCheck?.status ?? "open"}><option value="open">در جریان</option><option value="cleared">پاس شده</option><option value="bounced">برگشت خورده</option><option value="cancelled">باطل شده</option><option value="returned">برگشته</option></select></label></div>
++      <label>چک مال چه کسیه؟ <small>(صادرکننده)</small><input name="issuerName" value={issuerName} onChange={(event) => setIssuerName(event.target.value)} placeholder={direction === "received" ? partyName || "اگر شخص ثالث است، اسم صاحب چک" : "من"} /></label>
++      <label>الان در وجه کیه؟<input name="beneficiaryName" value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder={direction === "received" ? "من" : partyName || "نام گیرنده"} /></label>
++      {direction === "received" ? <label>چه کسی این چک رو به من داد؟ <small>(اگر با صادرکننده فرق دارد)</small><input name="transferorName" defaultValue={initialCheck?.transferorName ?? ""} /></label> : <input type="hidden" name="transferorName" value="" />}
++      <label>یادداشت<textarea name="note" rows={2} defaultValue={initialCheck?.note ?? ""} placeholder="هر چیزی که بعداً یادت می‌رود..." /></label>
++    </div></details>
++    <SubmitButton busy={busy} label={initialCheck ? "ذخیره" : "ثبت چک"} />
++  </form>;
++}
++
++function CheckTransferForm({ check, people, onSubmit, busy }: { check: CheckRecord; people: Person[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
++  const [mode, setMode] = useState<"person" | "custom">("person");
++  const [personId, setPersonId] = useState("");
++  const [customName, setCustomName] = useState("");
++  const person = people.find((item) => item.id === Number(personId));
++  const holderName = mode === "person" ? person?.name ?? "" : customName;
++  return <form onSubmit={onSubmit}><div className="sheet-title"><p>{check.purpose} • {money(check.amount)}</p><h2>چک رو به کی دادم؟</h2></div>
++    <div className="check-current-holder"><small>الان</small><strong>دست خودته</strong><span>سررسید {persianDate(check.dueDate, true)}</span></div>
++    <div className="check-counterparty-tabs"><button type="button" className={mode === "person" ? "active" : ""} onClick={() => setMode("person")}>یکی از آدم‌های دفتر</button><button type="button" className={mode === "custom" ? "active" : ""} onClick={() => setMode("custom")}>شخص / فروشگاه دیگر</button></div>
++    {mode === "person" ? <label>به چه کسی دادم؟<select required value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="" disabled>انتخاب شخص</option>{people.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : <label>به چه کسی دادم؟<input required value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="مثلاً فروشگاه کوروش" /></label>}
++    <input type="hidden" name="holderName" value={holderName} />
++    <JalaliDatePicker name="transferDate" label="کی واگذار کردم؟" defaultToday required />
++    <label>بابت چی؟ <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً بابت اجاره یا تسویه بدهی" /></label>
++    <p className="form-hint">این چک تا وقتی پاس شود از لیست پیگیری حذف نمی‌شود؛ فقط برنامه یادش می‌ماند الان دست چه کسی است.</p>
++    <SubmitButton busy={busy} label="ثبت واگذاری" />
+   </form>;
+ }
+ 
+@@ -756,21 +820,26 @@ function LoanForm({ initialLoan, onSubmit, busy }: { initialLoan?: Loan; onSubmi
+   const lastInstallment = installmentCount > 0 ? financedAmount - baseInstallment * Math.max(0, installmentCount - 1) : 0;
+   const financeCost = principalAmount > 0 ? Math.max(0, totalPayable - principalAmount) : 0;
+ 
+-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص</p><h2>{initialLoan ? "ویرایش قرارداد اقساطی" : "وام / خرید اقساطی جدید"}</h2></div>
+-    <div className="loan-provider-fields"><label>نوع طرف حساب<select name="providerType" defaultValue={initialLoan?.providerType ?? "bank"}><option value="bank">بانک</option><option value="store">فروشگاه</option><option value="other">مؤسسه / سایر</option></select></label><label>نام بانک / فروشگاه<input name="providerName" required autoFocus defaultValue={initialLoan?.providerName ?? ""} placeholder="مثلاً بانک ملت یا دیجی‌کالا" /></label></div>
+-    <label>عنوان قرارداد<input name="title" required defaultValue={initialLoan?.title ?? ""} placeholder="مثلاً وام خودرو یا خرید اقساطی لپ‌تاپ" /></label>
+-    <label>شماره قرارداد / پرونده <small>(اختیاری)</small><input name="contractNumber" defaultValue={initialLoan?.contractNumber ?? ""} placeholder="شماره وام، قرارداد یا پرونده" /></label>
+-    {scheduleLocked ? <div className="locked-loan-schedule"><div><Icon name="bank" size={18} /><span><strong>زمان‌بندی مالی قفل است</strong><small>چون برای این قرارداد پرداخت ثبت شده، مبلغ و سررسیدها برای حفظ تاریخچه تغییر نمی‌کنند.</small></span></div><div className="locked-loan-grid"><span><small>کل قرارداد</small><b>{money(initialLoan?.totalPayable ?? 0)}</b></span><span><small>پیش‌پرداخت</small><b>{money(initialLoan?.dow
