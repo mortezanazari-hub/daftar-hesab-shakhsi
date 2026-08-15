@@ -1,0 +1,22 @@
+name: Capture v8 source snapshot
+
+on:
+  push:
+    branches:
+      - agent/personal-reminders-v8
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack source
+        run: zip -r source-v8.zip app public tests README.md package.json package-lock.json vite.static.config.ts tsconfig.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-v8
+          path: source-v8.zip
+          if-no-files-found: error
