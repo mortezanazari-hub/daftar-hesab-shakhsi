@@ -644,6 +644,7 @@ export function FinanceApp() {
         <NavButton active={tab === "ledger"} icon="book" label="دفتر" onClick={() => setTab("ledger")} />
         <button className="nav-add" aria-label="ثبت جدید" onClick={() => setSheet("actions")}>+</button>
         <NavButton active={tab === "groups"} icon="users" label="دُنگ‌ها" onClick={() => setTab("groups")} />
+        <NavButton active={tab === "checks"} icon="check" label="چک‌ها" onClick={openChecks} />
         <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
       </nav>
 
