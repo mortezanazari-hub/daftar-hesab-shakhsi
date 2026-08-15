@@ -1,0 +1,50 @@
+ize={19} /></span><div><strong>{group.name}</strong><small>{number.format(group.members.length)} نفر • {number.format(group.expenses.length)} خرید</small></div><b>{money(group.totalSpent)}</b></div>
++    <div className="member-stack">{group.members.slice(0, 4).map((member) => <span key={member.personId} title={member.name}><Icon name="user" size={13} /></span>)}</div>
+   </button>;
+ }
+ 
+ function GroupCard({ group, onExpense }: { group: Group; onExpense: () => void }) {
+   return <article className="group-card">
+-    <div className="group-card-head"><div className="group-title"><span className="group-mark">{group.name.slice(0, 1)}</span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • جمع هزینه {money(group.totalSpent)}</p></div></div><button onClick={onExpense}>+ خرید</button></div>
++    <div className="group-card-head"><div className="group-title"><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • جمع هزینه {money(group.totalSpent)}</p></div></div><button onClick={onExpense}>+ خرید</button></div>
+     <div className="balances-list">
+-      {group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar">{balance.name.slice(0, 1)}</span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}
++      {group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}
+     </div>
+     {group.settlements.length > 0 && <div className="settlement-box"><strong>پیشنهاد تسویه</strong>{group.settlements.map((item, index) => <p key={`${item.from}-${item.to}-${index}`}><span>{item.from}</span><i>←</i><span>{item.to}</span><b>{money(item.amount)}</b></p>)}</div>}
+-    {group.expenses.length > 0 && <div className="latest-expense"><span>آخرین خرید: {group.expenses[0].title}</span><strong>{money(group.expenses[0].amount)}</strong></div>}
++    <details className="transaction-history" open>
++      <summary><span><Icon name="receipt" size={16} />ریز تراکنش‌ها</span><b>{number.format(group.expenses.length)} مورد</b></summary>
++      {group.expenses.length ? <div className="transaction-list">{group.expenses.map((expense) => <article className="expense-transaction" key={expense.id}>
++        <div className="expense-transaction-head"><span className="transaction-icon"><Icon name="receipt" size={16} /></span><div><strong>{expense.title}</strong><small>پرداخت توسط {expense.payerName} • {persianDate(expense.expenseDate)}</small></div><b>{money(expense.amount)}</b></div>
++        <div className="expense-share-list">{expense.shares.map((share) => <span key={share.personId}><small>{share.name}</small><strong>{money(share.amount)}</strong></span>)}</div>
++      </article>)}</div> : <p className="no-transactions">هنوز خریدی در این گروه ثبت نشده است.</p>}
++    </details>
+   </article>;
+ }
+ 
+ function ActionSheet({ onEntry, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
+   return <><div className="sheet-title"><p>چه چیزی می‌خواهی ثبت کنی؟</p><h2>ثبت جدید</h2></div><div className="action-list">
+-    {Object.entries(entryMeta).map(([kind, meta]) => <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}>{meta.icon}</span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "پولی که باید پرداخت کنی" : kind === "receivable" ? "پولی که باید دریافت کنی" : kind === "installment" ? "پرداخت دوره‌ای و سررسید" : "چک دریافتی یا پرداختی"}</small></div><b>‹</b></button>)}
+-    <button onClick={hasGroup ? onExpense : onGroup}><span className="quick-icon blue">د</span><div><strong>{hasGroup ? "خرید دُنگی" : "گروه دُنگی"}</strong><small>{hasGroup ? "ثبت خرج مشترک جدید" : "ساخت گروه و تعیین سهم‌ها"}</small></div><b>‹</b></button>
+-    <button onClick={onPerson}><span className="quick-icon sand">ش</span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌ها</small></div><b>‹</b></button>
++    {Object.entries(entryMeta).map(([kind, meta]) => <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "پولی که باید پرداخت کنی" : kind === "receivable" ? "پولی که باید دریافت کنی" : kind === "installment" ? "پرداخت دوره‌ای و سررسید" : "چک دریافتی یا پرداختی"}</small></div><b>‹</b></button>)}
++    <button onClick={hasGroup ? onExpense : onGroup}><span className="quick-icon blue"><Icon name="users" /></span><div><strong>{hasGroup ? "خرید دُنگی" : "گروه دُنگی"}</strong><small>{hasGroup ? "ثبت خرج مشترک جدید" : "ساخت گروه و تعیین سهم‌ها"}</small></div><b>‹</b></button>
++    <button onClick={onPerson}><span className="quick-icon sand"><Icon name="user-plus" /></span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌ها</small></div><b>‹</b></button>
+   </div></>;
+ }
+ 
+@@ -307,7 +329,7 @@
+ 
+ function EntryForm({ kind, people, onNeedPerson, onSubmit, busy }: { kind: string; people: Person[]; onNeedPerson: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
+   const meta = entryMeta[kind];
+-  if (!people.length) return <div className="form-empty"><span className={`quick-icon ${meta.tone}`}>{meta.icon}</span><h2>اول یک شخص اضافه کن</h2><p>هر ثبت مالی باید به یک نفر وصل باشد.</p><button className="submit-button" onClick={onNeedPerson}>افزودن شخص</button></div>;
++  if (!people.length) return <div className="form-empty"><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><h2>اول یک شخص اضافه کن</h2><p>هر ثبت مالی باید به یک نفر وصل باشد.</p><button className="submit-button" onClick={onNeedPerson}>افزودن شخص</button></div>;
+   return <form onSubmit={onSubmit}><div className="sheet-title"><p>جزئیات را وارد کن</p><h2>ثبت {meta.label}</h2></div>
+     <label>طرف حساب<select name="personId" required defaultValue=""><option value="" disabled>انتخاب شخص</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+     {(kind === "installment" || kind === "check") && <label>نوع حساب<select name="direction"><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}
+@@ -320,20 +342,43 @@
+ }
+ 
+ function GroupForm({ persons, values, setValues, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
+-  return <form onSubmit={onSubmit}><div className="sheet-title
