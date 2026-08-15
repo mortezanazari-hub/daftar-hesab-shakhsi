@@ -17,7 +17,23 @@ jobs:
 
       - name: Reassemble and verify payload
         run: |
-          cat .v3payload/part* | base64 -d > /tmp/v3changed.zip
+          cat \
+            .v3payload/part00 \
+            .v3payload/part01 \
+            .v3payload/part02a \
+            .v3payload/part02b \
+            .v3payload/part03a \
+            .v3payload/part03b \
+            .v3payload/part04a \
+            .v3payload/part04b \
+            .v3payload/part05a \
+            .v3payload/part05b \
+            .v3payload/part06a \
+            .v3payload/part06b \
+            .v3payload/part07a \
+            .v3payload/part07b1 \
+            .v3payload/part07b2 \
+            .v3payload/part08 | base64 -d > /tmp/v3changed.zip
           echo "2a01e736f5f6f0bc64a1af5da94d311c2ae5cbafd1b1a4e7ebd91e37d2a83202  /tmp/v3changed.zip" | sha256sum -c -
           unzip -o /tmp/v3changed.zip -d .
 
