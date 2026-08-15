@@ -1,0 +1,71 @@
+--- a/app/FinanceApp.tsx
++++ b/app/FinanceApp.tsx
+@@ -72,6 +72,7 @@
+   const [entryKind, setEntryKind] = useState("debt");
+   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
+   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
++  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+   const [settlementDraft, setSettlementDraft] = useState<SettlementDraft | null>(null);
+   const [busy, setBusy] = useState(false);
+@@ -106,6 +107,7 @@
+   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
+   const editingEntry = data?.entries.find((entry) => entry.id === editingEntryId);
+   const editingExpense = data?.groups.flatMap((group) => group.expenses.map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
++  const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
+   const selectedAccount = data?.accounts.find((account) => account.personId === selectedPersonId);
+   const today = todayIso();
+   const upcoming = openEntries.filter((entry) => entry.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+@@ -140,8 +142,9 @@
+     setSheet("entry");
+   }
+ 
+-  function beginGroup() {
+-    setGroupMembers({});
++  function beginGroup(group?: Group) {
++    setEditingGroupId(group?.id ?? null);
++    setGroupMembers(Object.fromEntries((group?.members ?? []).map((member) => [member.personId, member.shareWeight])));
+     setSheet("group");
+   }
+ 
+@@ -172,6 +175,11 @@
+ 
+   function deleteExpense(expense: Expense) {
+     if (window.confirm(`خرید «${expense.title}» و سهم‌های آن حذف شود؟`)) void post({ operation: "delete_expense", id: expense.id }, { close: false });
++  }
++
++  function deleteGroup(group: Group) {
++    const confirmed = window.confirm(`گروه «${group.name}» حذف شود؟\n\n${number.format(group.expenses.length)} خرید و ${number.format(group.settlements.length)} تسویه این گروه برای همیشه حذف می‌شوند. اشخاص و ثبت‌های مستقیم آن‌ها حذف نمی‌شوند.`);
++    if (confirmed) void post({ operation: "delete_group", id: group.id }, { close: false });
+   }
+ 
+   function deleteSettlement(id: number) {
+@@ -208,7 +216,7 @@
+     event.preventDefault();
+     const form = new FormData(event.currentTarget);
+     const members = Object.entries(groupMembers).map(([personId, shareWeight]) => ({ personId: Number(personId), shareWeight }));
+-    void post({ operation: "add_group", name: form.get("name"), members });
++    void post({ operation: editingGroup ? "update_group" : "add_group", id: editingGroup?.id, name: form.get("name"), members });
+   }
+ 
+   function submitExpense(event: FormEvent<HTMLFormElement>, splits: Array<{ personId: number; shareWeight: number }>) {
+@@ -315,7 +323,7 @@
+               </div>
+ 
+               <div className="section-title"><h2>دُنگ‌های فعال</h2><button onClick={() => setTab("groups")}>مدیریت دُنگ‌ها</button></div>
+-              {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={beginGroup} />}
++              {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={() => beginGroup()} />}
+             </section>
+           )}
+ 
+@@ -338,11 +346,11 @@
+ 
+           {tab === "groups" && (
+             <section className="page">
+-              <div className="page-heading"><div><p className="eyebrow">خرج‌های مشترک و تسویه واقعی</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={beginGroup}>+ گروه جدید</button></div>
++              <div className="page-heading"><div><p className="eyebrow">خرج‌های مشترک و تسویه واقعی</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={() => beginGroup()}>+ گروه جدید</button></div>
+               <SearchField value={groupSearch} onChange={setGroupSearch} placeholder="جست‌وجوی گروه، عضو یا خرید..." />
+               {data.groups.length > 0 && <button className="expense-cta" onClick={() => openExpense()}><span className="expense-plus">+</span><span><strong>ثبت خرید مشترک</strong><small>افراد همین خرید و سهم هر نفر را مشخص کن</small></span><b>‹</b></button>}
+               <div className="groups-stack">
+-                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onExpense={() => openExpense(group.id)} onEditExpense={(expense) => openExpense(group.id, expense)} onDeleteExpense={deleteExpense} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onDeleteSettlement={deleteSettlement} />)}
++                {filteredGroups.
