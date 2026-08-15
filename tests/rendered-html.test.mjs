@@ -32,7 +32,7 @@ test("ships a device-local offline database and no starter preview", async () =>
   ]);
   assert.match(hosting, /"d1": null/);
   assert.match(localDb, /indexedDB\.open/);
-  assert.match(localDb, /DB_VERSION = 4/);
+  assert.match(localDb, /DB_VERSION = 5/);
   assert.match(localDb, /"settlements"/);
   assert.match(localDb, /add_entry/);
   assert.match(localDb, /add_group/);
@@ -133,9 +133,9 @@ test("models bank and store installments independently from person ledgers", asy
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
   assert.match(app, /وام و اقساط/);
-  assert.match(app, /طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص/);
-  assert.match(app, /مبلغ کل قرارداد/);
-  assert.match(app, /ساخت برنامه اقساط/);
+  assert.match(app, /فقط چیزهایی که برای یادآوری قسط لازم داری/);
+  assert.match(app, /در مجموع چقدر باید بدم/);
+  assert.match(app, /بعد از زدن «پرداخت شد»، سررسید بعدی خودش جلو می‌آید/);
   assert.match(app, /پرداخت جزئی هم مجاز است/);
   assert.match(app, /data\.loans/);
   assert.match(localDb, /"loanInstallments"/);
@@ -149,33 +149,47 @@ test("models bank and store installments independently from person ledgers", asy
 });
 
 
-test("models received and issued cheques as dedicated financial documents", async () => {
-  const [app, localDb, serviceWorker] = await Promise.all([
+test("tracks cheque journeys and keeps the everyday UI personal", async () => {
+  const [app, localDb, serviceWorker, css] = await Promise.all([
     readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
     readFile(new URL("app/local-db.ts", root), "utf8"),
     readFile(new URL("public/sw.js", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
   ]);
-  assert.match(localDb, /type CheckRecord/);
-  assert.match(localDb, /DB_VERSION = 4/);
-  assert.match(localDb, /"checks"/);
+  assert.match(localDb, /type CheckEvent/);
+  assert.match(localDb, /DB_VERSION = 5/);
+  assert.match(localDb, /"checkEvents"/);
   assert.match(localDb, /operation === "add_check" \|\| operation === "update_check"/);
-  assert.match(localDb, /update_check_status/);
-  assert.match(localDb, /delete_check/);
-  assert.match(localDb, /شناسه صیادی چک باید ۱۶ رقم باشد/);
-  assert.match(localDb, /checkBalance/);
-  assert.match(app, /دفتر چک‌ها/);
-  assert.match(app, /چک گرفته‌ام/);
-  assert.match(app, /چک داده‌ام/);
-  assert.match(app, /صادرکننده \/ صاحب حساب/);
-  assert.match(app, /در وجه \/ ذی‌نفع فعلی/);
-  assert.match(app, /واگذارکننده به من/);
-  assert.match(app, /طرف حساب مالی/);
-  assert.match(app, /اگر همین بدهی\/طلب را قبلاً جدا ثبت کرده‌ای/);
-  assert.match(app, /شناسه صیادی/);
-  assert.match(app, /وضعیت در صیاد/);
-  assert.match(app, /function chooseDirection/);
-  assert.match(app, /setIssuerName\(next === "issued" \? "من" : ""\)/);
-  assert.match(app, /setBeneficiaryName\(next === "received" \? "من" : ""\)/);
-  assert.match(app, /برگت?شتی/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v5/);
+  assert.match(localDb, /operation === "transfer_check"/);
+  assert.match(localDb, /operation === "return_check_to_me"/);
+  assert.match(localDb, /currentHolderName/);
+  assert.match(localDb, /eventType: CheckEventType/);
+  assert.match(localDb, /شناسه صیادی در صورت ورود باید ۱۶ رقم باشد/);
+  assert.doesNotMatch(localDb, /checkType === "sayadi" && sayadId\.length !== 16/);
+  assert.match(app, /چک‌های من/);
+  assert.match(app, /گرفتم، دادم، واگذار کردم/);
+  assert.match(app, /واگذار کردم/);
+  assert.match(app, /الان دست کیه/);
+  assert.match(app, /جزئیات و مسیر چک/);
+  assert.match(app, /چک رو به کی دادم/);
+  assert.match(app, /این چک تا وقتی پاس شود از لیست پیگیری حذف نمی‌شود/);
+  assert.match(app, /شناسه صیاد <small>\(اختیاری/);
+  assert.match(app, /جزئیات بیشتر/);
+  assert.match(css, /check-timeline/);
+  assert.match(css, /advanced-fields/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v6/);
+});
+
+test("lets monthly installment reminders be completed directly from due dates", async () => {
+  const [app, localDb, jalali] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("app/jalali.ts", root), "utf8"),
+  ]);
+  assert.match(app, /function markInstallmentPaid/);
+  assert.match(app, /پرداخت شد/);
+  assert.match(app, /ثبت سریع از سررسید/);
+  assert.match(app, /onLoanPaid/);
+  assert.match(localDb, /operation === "add_loan_payment"/);
+  assert.match(jalali, /buildJalaliInstallmentDates/);
 });

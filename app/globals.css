@@ -418,3 +418,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .check-summary-grid { grid-template-columns: 1fr 1fr; }
   .check-summary-grid > div:first-child { grid-column: 1 / -1; }
 }
+
+/* v8 — personal reminders, recurring installments and cheque journey */
+.check-summary-grid.personal { grid-template-columns: repeat(3,1fr); }
+.check-summary-grid.personal > div { min-height: 58px; justify-content: center; }
+.check-summary-grid.personal strong { font-size: 9px; }
+.check-card.personal, .loan-card.personal { box-shadow: 0 7px 22px rgba(45,53,48,.035); }
+.check-personal-summary { margin-top: 11px; padding: 10px; border-radius: 13px; display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 8px; background: #f8f6f0; }
+.check-personal-summary > div { display: flex; flex-direction: column; gap: 3px; }.check-personal-summary small { color: var(--muted); font-size: 6.5px; }.check-personal-summary strong { font-size: 8px; }
+.check-primary-actions { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 5px; }.check-primary-actions button { border: 0; border-radius: 9px; padding: 7px 9px; color: var(--green); background: var(--green-soft); font-size: 7px; font-weight: 800; cursor: pointer; }.check-primary-actions button.success { color: #fff; background: var(--green); }.check-primary-actions button.danger { color: var(--coral); background: var(--coral-soft); }.check-primary-actions button.soft { color: var(--violet); background: var(--violet-soft); }
+.check-details { margin-top: 10px; border-top: 1px solid #ece7df; }.check-details > summary { min-height: 38px; padding-top: 8px; display: flex; justify-content: space-between; align-items: center; list-style: none; color: var(--muted); font-size: 7.5px; font-weight: 800; cursor: pointer; }.check-details > summary::-webkit-details-marker { display: none; }.check-details > summary b { font-size: 6.5px; }
+.check-timeline { margin-top: 9px; padding: 4px 2px; display: flex; flex-direction: column; gap: 0; }.check-timeline > div { min-height: 43px; padding: 5px 0; display: grid; grid-template-columns: 18px 1fr; gap: 7px; position: relative; }.check-timeline > div:not(:last-child)::before { content: ""; position: absolute; right: 8px; top: 20px; bottom: -6px; width: 1px; background: #ddd7cc; }.timeline-dot { width: 9px; height: 9px; margin: 5px 3px 0 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--violet); box-shadow: 0 0 0 1px #c7bddc; z-index: 1; }.check-timeline > div > div { display: flex; flex-direction: column; gap: 3px; }.check-timeline strong { font-size: 8px; }.check-timeline small { color: var(--muted); font-size: 6.5px; line-height: 1.6; }
+.reopen-check { margin-top: 8px; border: 0; border-radius: 9px; padding: 7px 9px; color: var(--green); background: var(--green-soft); font-size: 7px; font-weight: 800; cursor: pointer; }
+.advanced-fields { margin: 3px 0 14px; border: 1px solid #e7e2d9; border-radius: 14px; overflow: hidden; background: #fbfaf6; }.advanced-fields > summary { min-height: 42px; padding: 9px 11px; display: flex; justify-content: space-between; align-items: center; list-style: none; font-size: 8.5px; font-weight: 900; cursor: pointer; }.advanced-fields > summary::-webkit-details-marker { display: none; }.advanced-fields > summary small { color: var(--muted); font-size: 6.5px; }.advanced-fields > div { padding: 10px 11px 2px; border-top: 1px solid #ebe6dd; background: var(--surface); }
+.check-direction-picker.personal button { min-height: 56px; }.check-direction-picker.personal strong { font-size: 10px; }
+.check-current-holder { margin-bottom: 12px; padding: 12px; border-radius: 14px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; background: var(--violet-soft); }.check-current-holder small { color: var(--muted); font-size: 6.5px; }.check-current-holder strong { font-size: 9px; }.check-current-holder span { color: var(--muted); font-size: 7px; }
+.loan-card.personal .loan-card-head i { color: var(--muted); }
+.next-installment.personal { margin-top: 12px; }
+.loan-personal-stats { margin-top: 9px; display: flex; gap: 7px; }.loan-personal-stats > span { flex: 1; min-width: 0; padding: 8px 9px; border-radius: 11px; display: flex; flex-direction: column; gap: 3px; background: #f7f4ed; }.loan-personal-stats small { color: var(--muted); font-size: 6.5px; }.loan-personal-stats strong { font-size: 8px; }.loan-personal-stats span.danger { background: var(--coral-soft); }
+.loan-schedule.personal > summary { background: transparent; }.loan-schedule.personal .loan-extra { padding: 0 9px 9px; }.loan-preview.personal { grid-template-columns: 1fr 1fr; }
+.due-entry-actions .quick-paid { color: #fff; background: var(--green); }
+@media (max-width: 390px) {
+  .check-personal-summary { grid-template-columns: 1fr 1fr; }.check-personal-summary .check-status-pill { grid-column: 1 / -1; justify-self: start; }
+  .check-summary-grid.personal { grid-template-columns: repeat(3,1fr); }.check-summary-grid.personal > div:first-child { grid-column: auto; }
+  .check-current-holder { grid-template-columns: 1fr; }
+}

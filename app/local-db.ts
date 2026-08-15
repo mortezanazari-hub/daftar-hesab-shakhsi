@@ -6,7 +6,9 @@ export type Loan = { id: number; providerType: "bank" | "store" | "other"; provi
 export type CheckDirection = "issued" | "received";
 export type CheckStatus = "open" | "cleared" | "bounced" | "cancelled" | "returned";
 export type CheckSayadStatus = "not_registered" | "registered" | "confirmed" | "transferred";
-export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; overdue: boolean; financialOpen: boolean };
+export type CheckEventType = "received" | "issued" | "transferred" | "cleared" | "bounced" | "cancelled" | "returned" | "reopened";
+export type CheckEvent = { id: number; checkId: number; type: CheckEventType; eventDate: string; fromName: string; toName: string; note: string; createdAt: string };
+export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName: string; events: CheckEvent[]; overdue: boolean; financialOpen: boolean };
 export type GroupMember = { personId: number; name: string; shareWeight: number };
 export type ExpenseShare = { personId: number; name: string; amount: number; weight: number };
 export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[] };
@@ -33,7 +35,7 @@ export type FinanceData = { persons: Person[]; entries: Entry[]; groups: Group[]
 
 export type FinanceBackup = {
   app: "daftar-hesab-shakhsi";
-  version: 4;
+  version: 5;
   exportedAt: string;
   stores: {
     persons: Array<Record<string, unknown>>;
@@ -47,6 +49,7 @@ export type FinanceBackup = {
     loanInstallments: Array<Record<string, unknown>>;
     loanPayments: Array<Record<string, unknown>>;
     checks: Array<Record<string, unknown>>;
+    checkEvents: Array<Record<string, unknown>>;
   };
 };
 
@@ -60,11 +63,12 @@ type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; to
 type StoredLoan = { id?: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string };
 type StoredLoanInstallment = { id?: number; loanId: number; number: number; dueDate: string; amount: number };
 type StoredLoanPayment = { id?: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string };
-type StoredCheck = { id?: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string };
+type StoredCheck = { id?: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName?: string };
+type StoredCheckEvent = { id?: number; checkId: number; type: CheckEventType; eventDate: string; fromName: string; toName: string; note: string; createdAt: string };
 
 const DB_NAME = "hamhesab-local";
-const DB_VERSION = 4;
-const STORE_NAMES = ["persons", "entries", "groups", "members", "expenses", "shares", "settlements", "loans", "loanInstallments", "loanPayments", "checks"] as const;
+const DB_VERSION = 5;
+const STORE_NAMES = ["persons", "entries", "groups", "members", "expenses", "shares", "settlements", "loans", "loanInstallments", "loanPayments", "checks", "checkEvents"] as const;
 const COLORS = ["#315d4c", "#b65b4a", "#5f659b", "#447b8b", "#9a6b38"];
 let databasePromise: Promise<IDBDatabase> | null = null;
 
@@ -343,7 +347,7 @@ function cleanIsoDate(value: unknown, label: string) {
 export async function getFinanceData(): Promise<FinanceData> {
   const db = await openDatabase();
   await ensureSelf(db);
-  const [storedPersons, storedEntries, storedGroups, storedMembers, storedExpenses, storedShares, storedSettlements, storedLoans, storedLoanInstallments, storedLoanPayments, storedChecks] = await Promise.all([
+  const [storedPersons, storedEntries, storedGroups, storedMembers, storedExpenses, storedShares, storedSettlements, storedLoans, storedLoanInstallments, storedLoanPayments, storedChecks, storedCheckEvents] = await Promise.all([
     all<StoredPerson & { id: number }>(db, "persons"),
     all<StoredEntry & { id: number }>(db, "entries"),
     all<StoredGroup & { id: number }>(db, "groups"),
@@ -355,6 +359,7 @@ export async function getFinanceData(): Promise<FinanceData> {
     all<StoredLoanInstallment & { id: number }>(db, "loanInstallments"),
     all<StoredLoanPayment & { id: number }>(db, "loanPayments"),
     all<StoredCheck & { id: number }>(db, "checks"),
+    all<StoredCheckEvent & { id: number }>(db, "checkEvents"),
   ]);
   const persons = storedPersons
     .map(({ id, name, phone, isSelf, color }) => ({ id, name, phone, isSelf, color }))
@@ -438,7 +443,14 @@ export async function getFinanceData(): Promise<FinanceData> {
     return (a.nextInstallment?.dueDate ?? "9999-99-99").localeCompare(b.nextInstallment?.dueDate ?? "9999-99-99") || b.id - a.id;
   });
   const checks: CheckRecord[] = storedChecks
-    .map((check) => ({ ...check, overdue: checkFinancialOpen(check.status) && check.dueDate < today, financialOpen: checkFinancialOpen(check.status) }))
+    .map((check) => {
+      const events: CheckEvent[] = storedCheckEvents
+        .filter((event) => event.checkId === check.id)
+        .map((event) => ({ ...event }))
+        .sort((a, b) => b.eventDate.localeCompare(a.eventDate) || b.id - a.id);
+      const currentHolderName = check.currentHolderName || (check.direction === "received" ? "من" : check.beneficiaryName || check.counterpartyName);
+      return { ...check, currentHolderName, events, overdue: checkFinancialOpen(check.status) && check.dueDate < today, financialOpen: checkFinancialOpen(check.status) };
+    })
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || b.createdAt.localeCompare(a.createdAt) || b.id - a.id);
   return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups, checks), loans, checks };
 }
@@ -620,12 +632,9 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     if (!purpose) throw new Error("بابت چک را وارد کنید.");
     const bankName = cleanText(payload.bankName, 80);
     if (!bankName) throw new Error("نام بانک را وارد کنید.");
-    const issuerName = cleanText(payload.issuerName, 100);
-    const beneficiaryName = cleanText(payload.beneficiaryName, 100);
-    if (!issuerName) throw new Error("نام صادرکننده / صاحب حساب را وارد کنید.");
-    if (!beneficiaryName) throw new Error("نام ذی‌نفع / در وجه را وارد کنید.");
+    let issuerName = cleanText(payload.issuerName, 100);
+    let beneficiaryName = cleanText(payload.beneficiaryName, 100);
     const sayadId = normalizeSayadId(payload.sayadId);
-    if (checkType === "sayadi" && sayadId.length !== 16) throw new Error("شناسه صیادی چک باید ۱۶ رقم باشد.");
     if (sayadId && sayadId.length !== 16) throw new Error("شناسه صیادی در صورت ورود باید ۱۶ رقم باشد.");
     const relatedPersonId = optionalPositiveInteger(payload.relatedPersonId);
     const persons = await all<StoredPerson & { id: number }>(db, "persons");
@@ -633,6 +642,8 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     if (relatedPersonId && !relatedPerson) throw new Error("شخص مرتبط با چک در دفتر پیدا نشد.");
     const counterpartyName = relatedPerson?.name ?? cleanText(payload.counterpartyName, 100);
     if (!counterpartyName) throw new Error("طرف حساب مالی چک را مشخص کنید.");
+    issuerName = issuerName || (direction === "issued" ? "من" : counterpartyName);
+    beneficiaryName = beneficiaryName || (direction === "received" ? "من" : counterpartyName);
     const sayadStatus = ["not_registered", "registered", "confirmed", "transferred"].includes(String(payload.sayadStatus)) ? String(payload.sayadStatus) as CheckSayadStatus : "not_registered";
     const status = ["open", "cleared", "bounced", "cancelled", "returned"].includes(String(payload.status)) ? String(payload.status) as CheckStatus : "open";
     const countInBalance = payload.countInBalance === true || String(payload.countInBalance) === "true" || String(payload.countInBalance) === "on";
@@ -644,9 +655,21 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
       issuerName, beneficiaryName, transferorName: direction === "received" ? cleanText(payload.transferorName, 100) : "",
       relatedPersonId, counterpartyName, countInBalance, sayadStatus, status,
       note: cleanText(payload.note, 500), createdAt: id ? currentChecks.find((check) => check.id === id)?.createdAt ?? new Date().toISOString() : new Date().toISOString(),
+      currentHolderName: id ? currentChecks.find((check) => check.id === id)?.currentHolderName || (direction === "received" ? "من" : beneficiaryName) : (direction === "received" ? "من" : beneficiaryName),
     } satisfies StoredCheck;
-    const transaction = db.transaction("checks", "readwrite");
-    if (id) transaction.objectStore("checks").put({ ...record, id }); else transaction.objectStore("checks").add(record);
+    const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
+    if (id) {
+      transaction.objectStore("checks").put({ ...record, id });
+    } else {
+      const checkId = Number(await requestResult(transaction.objectStore("checks").add(record)));
+      const eventType: CheckEventType = direction === "received" ? "received" : "issued";
+      transaction.objectStore("checkEvents").add({
+        checkId, type: eventType, eventDate: issueDate || currentLocalIsoDate(),
+        fromName: direction === "received" ? counterpartyName : "من",
+        toName: direction === "received" ? "من" : beneficiaryName,
+        note: cleanText(payload.note, 300), createdAt: new Date().toISOString(),
+      } satisfies StoredCheckEvent);
+    }
     await transactionDone(transaction);
     return;
   }
@@ -655,19 +678,67 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const id = positiveInteger(payload.id, "شناسه چک");
     const status = ["open", "cleared", "bounced", "cancelled", "returned"].includes(String(payload.status)) ? String(payload.status) as CheckStatus : null;
     if (!status) throw new Error("وضعیت چک معتبر نیست.");
-    const transaction = db.transaction("checks", "readwrite");
+    const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
     const store = transaction.objectStore("checks");
     const current = await requestResult(store.get(id)) as (StoredCheck & { id: number }) | undefined;
     if (!current) throw new Error("چک موردنظر پیدا نشد.");
-    store.put({ ...current, status });
+    if (current.status !== status) {
+      store.put({ ...current, status });
+      const type: CheckEventType = status === "open" ? "reopened" : status;
+      transaction.objectStore("checkEvents").add({
+        checkId: id, type, eventDate: cleanText(payload.eventDate, 10) ? cleanIsoDate(payload.eventDate, "تاریخ رویداد") : currentLocalIsoDate(),
+        fromName: current.currentHolderName || (current.direction === "received" ? "من" : current.beneficiaryName),
+        toName: current.currentHolderName || (current.direction === "received" ? "من" : current.beneficiaryName),
+        note: cleanText(payload.note, 300), createdAt: new Date().toISOString(),
+      } satisfies StoredCheckEvent);
+    }
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "transfer_check") {
+    const id = positiveInteger(payload.id, "شناسه چک");
+    const holderName = cleanText(payload.holderName, 100);
+    if (!holderName) throw new Error("نام کسی که چک را به او واگذار کردی وارد کن.");
+    const transferDate = cleanText(payload.transferDate, 10) ? cleanIsoDate(payload.transferDate, "تاریخ واگذاری") : currentLocalIsoDate();
+    const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
+    const store = transaction.objectStore("checks");
+    const current = await requestResult(store.get(id)) as (StoredCheck & { id: number }) | undefined;
+    if (!current) throw new Error("چک موردنظر پیدا نشد.");
+    if (current.direction !== "received") throw new Error("مسیر واگذاری برای چکی است که قبلاً دریافت کرده‌ای.");
+    if (current.status !== "open") throw new Error("فقط چک باز را می‌توان به شخص دیگری واگذار کرد.");
+    const fromName = current.currentHolderName || "من";
+    if (fromName !== "من") throw new Error(`این چک الان نزد «${fromName}» ثبت شده و دست تو نیست.`);
+    store.put({ ...current, currentHolderName: holderName, beneficiaryName: holderName, sayadStatus: "transferred" });
+    transaction.objectStore("checkEvents").add({
+      checkId: id, type: "transferred", eventDate: transferDate, fromName, toName: holderName,
+      note: cleanText(payload.note, 300), createdAt: new Date().toISOString(),
+    } satisfies StoredCheckEvent);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "return_check_to_me") {
+    const id = positiveInteger(payload.id, "شناسه چک");
+    const returnDate = cleanText(payload.returnDate, 10) ? cleanIsoDate(payload.returnDate, "تاریخ بازگشت") : currentLocalIsoDate();
+    const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
+    const store = transaction.objectStore("checks");
+    const current = await requestResult(store.get(id)) as (StoredCheck & { id: number }) | undefined;
+    if (!current) throw new Error("چک موردنظر پیدا نشد.");
+    const fromName = current.currentHolderName || current.beneficiaryName || "نامشخص";
+    if (fromName === "من") throw new Error("این چک همین حالا نزد خودت ثبت شده است.");
+    store.put({ ...current, currentHolderName: "من", beneficiaryName: "من", status: "open" });
+    transaction.objectStore("checkEvents").add({ checkId: id, type: "returned", eventDate: returnDate, fromName, toName: "من", note: cleanText(payload.note, 300), createdAt: new Date().toISOString() } satisfies StoredCheckEvent);
     await transactionDone(transaction);
     return;
   }
 
   if (operation === "delete_check") {
     const id = positiveInteger(payload.id, "شناسه چک");
-    const transaction = db.transaction("checks", "readwrite");
+    const events = await all<StoredCheckEvent & { id: number }>(db, "checkEvents");
+    const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
     transaction.objectStore("checks").delete(id);
+    for (const event of events.filter((item) => item.checkId === id)) transaction.objectStore("checkEvents").delete(event.id);
     await transactionDone(transaction);
     return;
   }
@@ -850,7 +921,7 @@ export async function exportFinanceBackup() {
   for (const name of STORE_NAMES) {
     stores[name] = await all<Record<string, unknown>>(db, name);
   }
-  const payload: FinanceBackup = { app: "daftar-hesab-shakhsi", version: 4, exportedAt: new Date().toISOString(), stores };
+  const payload: FinanceBackup = { app: "daftar-hesab-shakhsi", version: 5, exportedAt: new Date().toISOString(), stores };
   return JSON.stringify(payload, null, 2);
 }
 
