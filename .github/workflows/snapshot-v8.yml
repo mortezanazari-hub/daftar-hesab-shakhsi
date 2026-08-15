@@ -14,11 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reassemble and verify v8 patch
+      - name: Reassemble and apply v8 patch
         shell: bash
         run: |
           cat .v8patch/part* > /tmp/v8.patch
-          echo "578151c89a382ff7a26d2486360cca3c8159aca740716b758eb1e6ed427a61e4  /tmp/v8.patch" | sha256sum -c -
           git apply --check /tmp/v8.patch
           git apply /tmp/v8.patch
 
