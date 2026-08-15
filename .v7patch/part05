@@ -1,0 +1,49 @@
++    <div className="check-meta-row"><span>صیاد: <b>{check.sayadId || "—"}</b></span><span>{sayadStatusLabel[check.sayadStatus]}</span>{check.chequeNumber && <span>شماره: <b>{check.chequeNumber}</b></span>}<span>{check.countInBalance ? "در مانده محاسبه می‌شود" : "بدون اثر مستقل در مانده"}</span></div>
++    {check.note && <p className="check-note">{check.note}</p>}
++    <div className="check-status-actions">{check.status !== "cleared" && <button className="success" onClick={() => onStatus("cleared")}>{check.direction === "received" ? "ثبت وصول" : "ثبت پاس شدن"}</button>}{check.status !== "bounced" && check.status !== "cleared" && <button className="danger" onClick={() => onStatus("bounced")}>برگشت خورد</button>}{check.status !== "open" && <button onClick={() => onStatus("open")}>بازگردانی به جریان</button>}</div>
+   </article>;
+ }
+ 
+@@ -586,11 +674,11 @@
+   </article>;
+ }
+ 
+-function ActionSheet({ onEntry, onLoan, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onLoan: () => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
++function ActionSheet({ onEntry, onLoan, onCheck, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onLoan: () => void; onCheck: () => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
+   return <><div className="sheet-title"><p>چه چیزی می‌خواهی ثبت کنی؟</p><h2>ثبت جدید</h2></div><div className="action-list">
+     {(["debt", "receivable"] as const).map((kind) => { const meta = entryMeta[kind]; return <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "بدهی مستقیم به یک شخص" : "طلب مستقیم از یک شخص"}</small></div><b>‹</b></button>; })}
+     <button onClick={onLoan}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>وام و اقساط</strong><small>بانک، فروشگاه، مبلغ کل و برنامه اقساط</small></div><b>‹</b></button>
+-    <button onClick={() => onEntry("check")}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>چک</strong><small>چک دریافتی یا پرداختی با سررسید</small></div><b>‹</b></button>
++    <button onClick={onCheck}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>چک</strong><small>دریافتی یا پرداختی، صیاد، بانک و طرف‌های سند</small></div><b>‹</b></button>
+     <button onClick={hasGroup ? onExpense : onGroup}><span className="quick-icon blue"><Icon name="users" /></span><div><strong>{hasGroup ? "خرید دُنگی" : "گروه دُنگی"}</strong><small>{hasGroup ? "ثبت خرج مشترک با سهم اختصاصی" : "ساخت گروه و تعیین سهم‌های پیش‌فرض"}</small></div><b>‹</b></button>
+     <button onClick={onPerson}><span className="quick-icon sand"><Icon name="user-plus" /></span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌های شخصی</small></div><b>‹</b></button>
+   </div></>;
+@@ -605,7 +693,7 @@
+   if (!people.length) return <div className="form-empty"><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><h2>اول یک شخص اضافه کن</h2><p>هر ثبت مالی باید به یک نفر وصل باشد.</p><button className="submit-button" onClick={onNeedPerson}>افزودن شخص</button></div>;
+   return <form onSubmit={onSubmit}><div className="sheet-title"><p>{initialEntry ? "اطلاعات ثبت را اصلاح کن" : "جزئیات را وارد کن"}</p><h2>{initialEntry ? "ویرایش" : "ثبت"} {meta.label}</h2></div>
+     <label>طرف حساب<select name="personId" required defaultValue={initialEntry?.personId ?? ""}><option value="" disabled>انتخاب شخص</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+-    {kind === "check" && <label>نوع حساب<select name="direction" defaultValue={initialEntry?.direction ?? "debt"}><option value="debt">پرداختی — من بدهکارم</option><option value="receivable">دریافتی — من طلبکارم</option></select></label>}{kind === "installment" && <input type="hidden" name="direction" value={initialEntry?.direction ?? "debt"} />}
++    {(kind === "installment" || kind === "check") && <input type="hidden" name="direction" value={initialEntry?.direction ?? "debt"} />}
+     <label>عنوان<input name="title" required defaultValue={initialEntry?.title ?? ""} placeholder={kind === "installment" ? "ثبت قدیمی قسط" : kind === "check" ? "مثلاً چک اجاره" : "بابت چه چیزی؟"} /></label>
+     <MoneyInput name="amount" label="مبلغ (تومان)" required defaultValue={initialEntry?.amount} placeholder="مثلاً ۲٬۵۰۰٬۰۰۰" />
+     <JalaliDatePicker name="dueDate" label="تاریخ سررسید شمسی" optional initialValue={initialEntry?.dueDate ? isoToJalaliInput(initialEntry.dueDate) : ""} />
+@@ -614,6 +702,48 @@
+   </form>;
+ }
+ 
++function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: CheckRecord; people: Person[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean }) {
++  const [direction, setDirection] = useState<CheckRecord["direction"]>(initialCheck?.direction ?? "received");
++  const [checkType, setCheckType] = useState<CheckRecord["checkType"]>(initialCheck?.checkType ?? "sayadi");
++  const [counterpartyMode, setCounterpartyMode] = useState<"person" | "custom">(initialCheck?.relatedPersonId ? "person" : "custom");
++  const [relatedPersonId, setRelatedPersonId] = useState(initialCheck?.relatedPersonId ? String(initialCheck.relatedPersonId) : "");
++  const [issuerName, setIssuerName] = useState(initialCheck?.issuerName ?? (initialCheck?.direction === "issued" ? "من" : ""));
++  const [beneficiaryName, setBeneficiaryName] = useState(initialCheck?.beneficiaryName ?? (initialCheck?.direction === "issued" ? "" : "من"));
++  const selectedPerson = people.find((person) => person.id === Number(relatedPersonId));
++  function chooseDirection(next: CheckRecord["direction"]) {
++    if (next === direction) return;
++    setDirection(next);
++    if (!initialCheck) {
++      setIssuerName(next === "issued" ? "من" : "");
++      setBeneficiaryName(next === "received" ? "من" : "");
++    }
++  }
