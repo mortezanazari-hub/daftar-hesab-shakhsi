@@ -53,6 +53,19 @@ export const expenseShares = sqliteTable("expense_shares", {
   expenseId: integer("expense_id").notNull().references(() => expenses.id),
   personId: integer("person_id").notNull().references(() => persons.id),
   amount: integer("amount").notNull(),
+  weight: integer("weight").notNull().default(0),
 }, (table) => [
   uniqueIndex("idx_expense_shares_unique").on(table.expenseId, table.personId),
 ]);
+
+
+export const groupSettlements = sqliteTable("group_settlements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  groupId: integer("group_id").notNull().references(() => expenseGroups.id),
+  fromPersonId: integer("from_person_id").notNull().references(() => persons.id),
+  toPersonId: integer("to_person_id").notNull().references(() => persons.id),
+  amount: integer("amount").notNull(),
+  settlementDate: text("settlement_date").notNull(),
+  note: text("note").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
