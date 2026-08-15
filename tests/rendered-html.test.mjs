@@ -41,3 +41,25 @@ test("ships a device-local offline database and no starter preview", async () =>
   await assert.rejects(access(new URL("app/api/finance/route.ts", root)));
   await assert.rejects(access(new URL("app/_sites-preview/SkeletonPreview.tsx", root)));
 });
+
+
+test("keeps dong membership explicit, supports zero shares, and shows transaction details", async () => {
+  const [app, localDb, schema, bootstrap] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("db/index.ts", root), "utf8"),
+  ]);
+  assert.match(app, /setGroupMembers\(\{\}\)/);
+  assert.match(app, /\[personId\]: 0/);
+  assert.match(app, /min="0"/);
+  assert.match(app, /ریز تراکنش‌ها/);
+  assert.match(app, /expense\.shares/);
+  assert.match(app, /<Icon name="users"/);
+  assert.match(app, /<Icon name="calendar"/);
+  assert.match(localDb, /nonNegativeInteger\(member\.shareWeight/);
+  assert.match(localDb, /member\.shareWeight <= 0/);
+  assert.match(localDb, /amount: 0/);
+  assert.match(schema, /shareWeight: integer\("share_weight"\)\.notNull\(\)\.default\(0\)/);
+  assert.match(bootstrap, /share_weight INTEGER NOT NULL DEFAULT 0/);
+});

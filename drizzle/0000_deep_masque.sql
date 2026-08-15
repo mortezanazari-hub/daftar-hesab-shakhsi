@@ -30,7 +30,7 @@ CREATE TABLE `group_members` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`group_id` integer NOT NULL,
 	`person_id` integer NOT NULL,
-	`share_weight` integer DEFAULT 1 NOT NULL,
+	`share_weight` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`group_id`) REFERENCES `expense_groups`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON UPDATE no action ON DELETE no action
 );
