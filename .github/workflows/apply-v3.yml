@@ -1,0 +1,59 @@
+name: Apply and validate finance v3
+
+on:
+  push:
+    branches: [agent/unified-ledger-v3]
+    paths:
+      - .github/workflows/apply-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble and verify payload
+        run: |
+          cat .v3payload/part* | base64 -d > /tmp/v3changed.zip
+          echo "2a01e736f5f6f0bc64a1af5da94d311c2ae5cbafd1b1a4e7ebd91e37d2a83202  /tmp/v3changed.zip" | sha256sum -c -
+          unzip -o /tmp/v3changed.zip -d .
+
+      - name: Verify exact source files
+        run: |
+          echo "05e0bdd2ca031a32c6da6c2f84bd166c49f981087c1607954c553e561b9ea7b6  README.md" | sha256sum -c -
+          echo "299303ff4a79bffcbbf8812e1c39fce41ab68821ca54f75f3a474a4c9c6f681b  app/FinanceApp.tsx" | sha256sum -c -
+          echo "ad278787bccd5f203b238819590b833705ad5d868cff2203e14f688b77681db3  app/globals.css" | sha256sum -c -
+          echo "6c729828b138d33a79fa8196dfa9bc91dbcdef720bb3e5b3ca2b41fd36b790a2  app/local-db.ts" | sha256sum -c -
+          echo "150a20e43040b1254054140a99db190e169bd23cb97320f95a8aa99cc9673537  db/index.ts" | sha256sum -c -
+          echo "07505a871c8f312200bc4468b80801973c15237012a69760d5914721acf811a3  db/schema.ts" | sha256sum -c -
+          echo "b0e1bd79b671264e956b57c227563fcbb7fe6cb40ff56b8a99053d5b17417887  drizzle/0000_deep_masque.sql" | sha256sum -c -
+          echo "60fa13f49da6776e8845a0447383250fd8044915ee66e7758f130bcd0397f674  drizzle/meta/0000_snapshot.json" | sha256sum -c -
+          echo "ff29f3091d8ff5e5e9a23a60d726e6e7b4f6fa42b020fc25e766557ce45c2f6b  public/sw.js" | sha256sum -c -
+          echo "6feffc8b566fa7e080a3630eab91785b6f2046fcfe671f7b957ed2de0cfe3029  tests/rendered-html.test.mjs" | sha256sum -c -
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production static build
+        run: npm run static:build
+
+      - name: Run regression tests
+        run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
+
+      - name: Commit validated v3 source
+        run: |
+          rm -rf .v3payload
+          rm -f .github/workflows/apply-v3.yml
+          git config user.name "Morteza Nazari"
+          git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
+          git add -A
+          git commit -m "Add unified ledger and financial safety tools"
+          git push
