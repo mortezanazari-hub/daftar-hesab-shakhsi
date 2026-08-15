@@ -277,3 +277,89 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (max-width: 380px) {
   .group-head-actions { flex-direction: row; max-width: 146px; }
 }
+
+/* v5 — geometric icon centering */
+.app-shell svg[aria-hidden="true"] {
+  display: block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+
+.avatar,
+.delete-person,
+.quick-icon,
+.entry-icon,
+.empty-state > span,
+.group-mark,
+.member-stack span,
+.person-avatar,
+.add-person-card > span,
+.expense-plus,
+.transaction-icon,
+.entry-actions button,
+.settlement-history article > button,
+.transaction-actions button,
+.participant-toggle > span,
+.ledger-source,
+.ledger-item > button,
+.tool-icon,
+.search-field > span,
+.search-field > button,
+.group-head-actions .group-icon-action,
+.bottom-nav > button > span,
+.bottom-nav .nav-add {
+  display: grid;
+  place-items: center;
+}
+
+.avatar,
+.delete-person,
+.entry-actions button,
+.settlement-history article > button,
+.transaction-actions button,
+.ledger-item > button,
+.search-field > button,
+.group-head-actions .group-icon-action,
+.bottom-nav .nav-add {
+  padding: 0;
+  line-height: 0;
+}
+
+.group-head-actions .group-icon-action {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  gap: 0;
+}
+
+.bottom-nav > button > span {
+  width: 24px;
+  height: 24px;
+  line-height: 0;
+}
+
+.avatar > svg,
+.delete-person > svg,
+.quick-icon > svg,
+.entry-icon > svg,
+.empty-state > span > svg,
+.group-mark > svg,
+.member-stack span > svg,
+.person-avatar > svg,
+.add-person-card > span > svg,
+.transaction-icon > svg,
+.entry-actions button > svg,
+.settlement-history article > button > svg,
+.transaction-actions button > svg,
+.ledger-source > svg,
+.ledger-item > button > svg,
+.tool-icon > svg,
+.search-field > span > svg,
+.search-field > button > svg,
+.group-head-actions .group-icon-action > svg,
+.bottom-nav > button > span > svg,
+.bottom-nav .nav-add > svg {
+  margin: 0;
+  align-self: center;
+  justify-self: center;
+}
