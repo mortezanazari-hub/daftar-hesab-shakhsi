@@ -1,0 +1,9 @@
++.hide-completed-due.active b { color: #fff; background: var(--green); }
++.timeline-row.completed { opacity: .68; }
++.timeline-row.completed .due-copy strong,
++.timeline-row.completed .due-amount > strong { text-decoration: line-through; text-decoration-thickness: 1.5px; text-decoration-color: #9ea7a2; }
++.date-badge.completed { color: #728079; background: #eef2ef; }
++.date-badge.completed strong { text-decoration: line-through; }
++.due-item-row.completed { background: #fafbf9; }
++.due-item-row.completed .due-source { color: var(--green); background: var(--green-soft); }
++.due-item-row.completed .due-copy small { opacity
