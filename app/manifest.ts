@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "هم‌حساب — دفتر مالی شخصی",
-    short_name: "هم‌حساب",
+    name: "دفتر حساب شخصی",
+    short_name: "دفتر حساب",
     description: "مدیریت بدهی، طلب، اقساط، چک‌ها و دُنگ‌های مشترک",
     id: "/",
     start_url: "/",

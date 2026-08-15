@@ -8,13 +8,13 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:5173";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "هم‌حساب | دفتر مالی شخصی و مدیریت دُنگ";
+  const title = "دفتر حساب شخصی | مدیریت مالی و دُنگ";
   const description = "ثبت بدهی، طلب، قسط، چک و مدیریت هوشمند هزینه‌های مشترک.";
   return {
     metadataBase: new URL(origin),
     title,
     description,
-    applicationName: "هم‌حساب",
+    applicationName: "دفتر حساب شخصی",
     manifest: "/manifest.webmanifest",
     icons: {
       icon: [
@@ -23,8 +23,8 @@ export async function generateMetadata(): Promise<Metadata> {
       ],
       apple: "/icon-512.png",
     },
-    appleWebApp: { capable: true, title: "هم‌حساب", statusBarStyle: "black-translucent" },
-    openGraph: { title, description, type: "website", url: origin, locale: "fa_IR", images: [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "هم‌حساب — دفتر مالی شخصی و مدیریت دُنگ" }] },
+    appleWebApp: { capable: true, title: "دفتر حساب شخصی", statusBarStyle: "black-translucent" },
+    openGraph: { title, description, type: "website", url: origin, locale: "fa_IR", images: [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "دفتر حساب شخصی — مدیریت مالی و دُنگ" }] },
     twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
   };
 }

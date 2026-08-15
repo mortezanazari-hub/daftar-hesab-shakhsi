@@ -11,7 +11,7 @@ test("defines the Persian mobile finance application shell", async () => {
     readFile(new URL("app/manifest.ts", root), "utf8"),
   ]);
   assert.match(layout, /lang="fa" dir="rtl"/);
-  assert.match(layout, /هم‌حساب/);
+  assert.match(layout, /دفتر حساب شخصی/);
   assert.match(layout, /og\.png/);
   assert.match(layout, /fontsource-variable\/vazirmatn/);
   assert.match(app, /مدیریت دُنگ/);
@@ -35,7 +35,8 @@ test("ships a device-local offline database and no starter preview", async () =>
   assert.match(localDb, /add_entry/);
   assert.match(localDb, /add_group/);
   assert.match(localDb, /add_expense/);
-  assert.match(serviceWorker, /hamhesab-offline/);
+  assert.match(serviceWorker, /daftar-hesab-offline/);
+  assert.match(localDb, /delete_person/);
   assert.match(serviceWorker, /caches\.match/);
   await assert.rejects(access(new URL("app/api/finance/route.ts", root)));
   await assert.rejects(access(new URL("app/_sites-preview/SkeletonPreview.tsx", root)));

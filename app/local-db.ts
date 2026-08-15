@@ -170,6 +170,30 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     await transactionDone(transaction);
     return;
   }
+  if (operation === "delete_person") {
+    const personId = positiveInteger(payload.id, "شناسه شخص");
+    const [persons, entries, members, expenses, shares] = await Promise.all([
+      all<StoredPerson & { id: number }>(db, "persons"),
+      all<StoredEntry & { id: number }>(db, "entries"),
+      all<StoredMember & { id: number }>(db, "members"),
+      all<StoredExpense & { id: number }>(db, "expenses"),
+      all<StoredShare & { id: number }>(db, "shares"),
+    ]);
+    const person = persons.find((item) => item.id === personId);
+    if (!person) throw new Error("این شخص پیدا نشد.");
+    if (person.isSelf) throw new Error("پروفایل «من» قابل حذف نیست.");
+    const groupIds = new Set(members.filter((member) => member.personId === personId).map((member) => member.groupId));
+    const expenseIds = new Set(expenses.filter((expense) => groupIds.has(expense.groupId)).map((expense) => expense.id));
+    const transaction = db.transaction(["persons", "entries", "groups", "members", "expenses", "shares"], "readwrite");
+    transaction.objectStore("persons").delete(personId);
+    for (const entry of entries.filter((item) => item.personId === personId)) transaction.objectStore("entries").delete(entry.id);
+    for (const groupId of groupIds) transaction.objectStore("groups").delete(groupId);
+    for (const member of members.filter((item) => groupIds.has(item.groupId))) transaction.objectStore("members").delete(member.id);
+    for (const expense of expenses.filter((item) => groupIds.has(item.groupId))) transaction.objectStore("expenses").delete(expense.id);
+    for (const share of shares.filter((item) => expenseIds.has(item.expenseId))) transaction.objectStore("shares").delete(share.id);
+    await transactionDone(transaction);
+    return;
+  }
   if (operation === "add_group") {
     const name = cleanText(payload.name, 80);
     if (!name) throw new Error("نام گروه را وارد کنید.");

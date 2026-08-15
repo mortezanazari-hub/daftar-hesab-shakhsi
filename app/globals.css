@@ -101,7 +101,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .small-primary { border: 0; border-radius: 12px; padding: 9px 12px; color: #fff; background: var(--green); font-size: 10px; font-weight: 800; cursor: pointer; }
 .people-scroll { display: flex; gap: 10px; overflow-x: auto; padding: 3px 1px 8px; scrollbar-width: none; }
 .people-scroll::-webkit-scrollbar { display: none; }
-.person-card { min-width: 135px; min-height: 144px; padding: 16px 13px; border: 1px solid var(--line); border-radius: 21px; background: var(--surface); display: flex; flex-direction: column; align-items: center; gap: 7px; box-shadow: 0 8px 25px rgba(45,53,48,.04); }
+.person-card { min-width: 135px; min-height: 144px; padding: 16px 13px; border: 1px solid var(--line); border-radius: 21px; background: var(--surface); display: flex; flex-direction: column; align-items: center; gap: 7px; box-shadow: 0 8px 25px rgba(45,53,48,.04); position: relative; }
+.delete-person { position: absolute; top: 8px; left: 8px; width: 25px; height: 25px; border: 0; border-radius: 9px; color: #9c4a3a; background: var(--coral-soft); font-size: 16px; line-height: 1; cursor: pointer; }
 .person-avatar { width: 49px; height: 49px; display: grid; place-items: center; border-radius: 18px; color: #fff; font-size: 16px; font-weight: 900; }.person-card strong { font-size: 12px; }.person-card small { text-align: center; font-size: 8px; line-height: 1.65; }
 .add-person-card { color: var(--green); cursor: pointer; }.add-person-card > span { width: 49px; height: 49px; display: grid; place-items: center; border: 1px dashed #7fa18f; border-radius: 18px; font-size: 23px; }.add-person-card small { color: var(--muted); }
 

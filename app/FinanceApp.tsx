@@ -44,7 +44,7 @@ export function FinanceApp() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+    if (location.hostname !== "localhost" && "serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
   }, []);
 
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
@@ -84,6 +84,11 @@ export function FinanceApp() {
   function beginGroup() {
     setGroupMembers(self ? { [self.id]: 1 } : {});
     setSheet("group");
+  }
+
+  function deletePerson(person: Person) {
+    const confirmed = window.confirm(`«${person.name}» حذف شود؟ همه ثبت‌های مالی این فرد و گروه‌های دُنگی مشترک او نیز برای حفظ درستی حساب‌ها پاک می‌شوند.`);
+    if (confirmed) void post({ operation: "delete_person", id: person.id });
   }
 
   function submitPerson(event: FormEvent<HTMLFormElement>) {
@@ -134,7 +139,7 @@ export function FinanceApp() {
       <header className="topbar">
         <div>
           <p className="eyebrow">دفتر مالی شخصی</p>
-          <h1>هم‌حساب</h1>
+          <h1>دفتر حساب شخصی</h1>
           <span className="local-badge">● ذخیره امن روی گوشی</span>
         </div>
         <button className="avatar" aria-label="پروفایل من">م</button>
@@ -186,6 +191,7 @@ export function FinanceApp() {
               <div className="people-scroll">
                 {personBalances.map((person) => (
                   <article className="person-card" key={person.id}>
+                    <button className="delete-person" onClick={() => deletePerson(person)} aria-label={`حذف ${person.name}`}>×</button>
                     <span className="person-avatar" style={{ background: person.color }}>{person.name.slice(0, 1)}</span>
                     <strong>{person.name}</strong>
                     <small className={person.balance >= 0 ? "text-green" : "text-coral"}>{person.balance === 0 ? "تسویه" : person.balance > 0 ? `${money(person.balance)} طلبکارم` : `${money(-person.balance)} بدهکارم`}</small>
