@@ -1,0 +1,42 @@
+</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
++                {!calendarDueItems.length && <EmptyState icon="calendar" title={hideCompletedDue && completedDueCount ? "همه کارهای این بازه انجام شده" : "برای این بازه سررسیدی نداری"} detail={hideCompletedDue && completedDueCount ? "برای دیدن موارد پرداخت‌شده و پاس‌شده، نمایش انجام‌شده‌ها را روشن کن." : "فیلتر ماه را عوض کن یا یک قسط، چک یا بدهی تاریخ‌دار ثبت کن."} action={dueRange === "current" ? "دیدن ماه بعد" : "نمایش همه"} onAction={() => setDueRange(dueRange === "current" ? "next" : "all")} />}
+               </div>
+             </section>
+           )}
+@@ -630,10 +689,19 @@ function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entr
+ function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPaid: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
+   const icon: IconName = item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.source === "check" ? "check" : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt";
+   const positive = item.source === "check" ? item.check.direction === "received" : item.source === "entry" && item.entry.direction === "receivable";
+-  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
+-    <span className={`due-source ${item.source}`}><Icon name={icon} size={16} /></span>
++  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}>
++    <span className={`due-source ${item.source}`}><Icon name={item.completed ? "calendar-check" : icon} size={16} /></span>
+     <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
+-    <div className="due-amount"><strong className={positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <span className="due-entry-actions"><button className="quick-paid" onClick={onLoanPaid}>پرداخت شد</button><button onClick={onLoanPayment} aria-label="ثبت پرداخت جزئی یا تاریخ دیگر"><Icon name="edit" size={12} /></button></span> : item.source === "check" ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
++    <div className="due-amount">
++      <strong className={item.completed ? "text-muted" : positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>
++      {item.completed
++        ? <span className="due-completed-label"><Icon name="calendar-check" size={12} /> {item.completionLabel}</span>
++        : item.source === "loan"
++          ? <span className="due-entry-actions"><button className="quick-paid" onClick={onLoanPaid}>پرداخت شد</button><button onClick={onLoanPayment} aria-label="ثبت پرداخت جزئی یا تاریخ دیگر"><Icon name="edit" size={12} /></button></span>
++          : item.source === "check"
++            ? <span className="due-entry-actions"><button onClick={onCheckClear}>{item.check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button onClick={onCheckOpen} aria-label="جزئیات چک"><Icon name="edit" size={12} /></button></span>
++            : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}
++    </div>
+   </article>;
+ }
+ 
+@@ -854,6 +922,15 @@ function LoanPaymentForm({ loan, installment, onSubmit, busy }: { loan: Loan; in
+   </form>;
+ }
+ 
++function ShareStepper({ value, onChange, label }: { value: number; onChange: (value: number) => void; label: string }) {
++  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
++  return <div className="share-stepper">
++    <button type="button" onClick={() => onChange(Math.max(0, safeValue - 1))} disabled={safeValue <= 0} aria-label={`کم کردن ${label}`}>−</button>
++    <input aria-label={label} type="number" min="0" max="100" value={safeValue} onChange={(event) => onChange(Math.max(0, Math.min(100, Number(event.target.value) || 0)))} />
++    <button type="button" onClick={() => onChange(Math.min(100, safeValue + 1))} disabled={safeValue >= 100} aria-label={`زیاد کردن ${label}`}>+</button>
++  </div>;
++}
++
+ function GroupForm({ persons, values, setValues, initialGroup, onS
