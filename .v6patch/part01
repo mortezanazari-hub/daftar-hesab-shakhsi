@@ -1,0 +1,109 @@
+unt: form.get("amount"), paymentDate, note: form.get("note") });
++  }
++
+   function submitGroup(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     const form = new FormData(event.currentTarget);
+@@ -301,19 +392,21 @@ export function FinanceApp() {
+                   <div><span className="dot green-dot" />کل طلب باز<strong>{money(totalReceivable)}</strong></div>
+                   <div><span className="dot coral-dot" />کل بدهی باز<strong>{money(totalDebt)}</strong></div>
+                 </div>
+-                <p className="balance-caption">ثبت‌های مستقیم + اثر دُنگ‌ها + تسویه‌های ثبت‌شده</p>
++                <p className="balance-caption">ثبت‌های مستقیم + دُنگ‌ها + تسویه‌ها + مانده وام‌ها</p>
+                 <div className="balance-art" aria-hidden="true"><i /><i /><i /><i /></div>
+               </article>
+ 
+               <div className="section-title"><h2>ثبت سریع</h2><button onClick={() => setSheet("actions")}>همه موارد</button></div>
+               <div className="quick-grid">
+-                {Object.entries(entryMeta).map(([kind, meta]) => <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>)}
++                {quickEntryKinds.slice(0, 2).map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
++                <button className="quick-action" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><span>وام و اقساط</span></button>
++                <button className="quick-action" onClick={() => openEntry("check")}><span className="quick-icon violet"><Icon name="check" /></span><span>چک</span></button>
+               </div>
+ 
+               <div className="section-title"><h2>نزدیک‌ترین سررسیدها</h2><button onClick={() => setTab("calendar")}>مشاهده همه</button></div>
+-              <div className="surface-list">
+-                {upcoming.slice(0, 3).map((entry) => <EntryRow key={entry.id} entry={entry} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} />)}
+-                {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="ثبت قسط" onAction={() => openEntry("installment")} />}
++              <div className="surface-list due-list">
++                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} />)}
++                {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک، بدهی تاریخ‌دار یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="وام و اقساط" onAction={openLoans} />}
+               </div>
+ 
+               <div className="section-title"><h2>دفتر کل اشخاص</h2><button onClick={() => setTab("ledger")}>مشاهده همه</button></div>
+@@ -322,6 +415,9 @@ export function FinanceApp() {
+                 {!data.accounts.length && <EmptyState icon="book" title="هنوز طرف حسابی نداری" detail="یک شخص اضافه کن تا دفتر کل او ساخته شود." action="افزودن شخص" onAction={() => setSheet("person")} />}
+               </div>
+ 
++              <div className="section-title"><h2>وام و اقساط</h2><button onClick={openLoans}>مدیریت وام‌ها</button></div>
++              {data.loans.some((loan) => loan.remainingAmount > 0) ? <button className="loan-home-card" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>{number.format(data.loans.filter((loan) => loan.remainingAmount > 0).length)} قرارداد فعال</strong><small>مانده کل تعهد اقساطی</small></div><b>{money(loanDebt)}</b></button> : <EmptyState icon="bank" title="وام فعالی ثبت نشده" detail="وام بانکی یا خرید اقساطی فروشگاهی را مستقل از دفتر اشخاص مدیریت کن." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
++
+               <div className="section-title"><h2>دُنگ‌های فعال</h2><button onClick={() => setTab("groups")}>مدیریت دُنگ‌ها</button></div>
+               {data.groups[0] ? <GroupPreview group={data.groups[0]} onClick={() => setTab("groups")} /> : <EmptyState icon="users" title="هنوز گروه دُنگی نداری" detail="برای سفر، خانه یا دورهمی یک گروه بساز و سهم‌ها را مشخص کن." action="ساخت گروه" onAction={() => beginGroup()} />}
+             </section>
+@@ -356,12 +452,25 @@ export function FinanceApp() {
+             </section>
+           )}
+ 
++          {tab === "loans" && (
++            <section className="page loans-page">
++              <div className="page-heading"><div><p className="eyebrow">تعهدهای بانکی و خریدهای اقساطی</p><h2>وام و اقساط</h2></div><button className="small-primary" onClick={() => openLoanForm()}>+ قرارداد جدید</button></div>
++              <div className="loan-summary-grid"><div><small>مانده کل</small><strong>{money(loanDebt)}</strong></div><div><small>عقب‌افتاده</small><strong className={(data.loans.reduce((sum, loan) => sum + loan.overdueCount, 0)) > 0 ? "text-coral" : "text-green"}>{number.format(data.loans.reduce((sum, loan) => sum + loan.overdueCount, 0))} قسط</strong></div><div><small>قرارداد فعال</small><strong>{number.format(data.loans.filter((loan) => loan.remainingAmount > 0).length)}</strong></div></div>
++              <SearchField value={loanSearch} onChange={setLoanSearch} placeholder="جست‌وجوی بانک، فروشگاه، قرارداد یا عنوان..." />
++              <div className="filter-row"><button className={loanFilter === "active" ? "active" : ""} onClick={() => setLoanFilter("active")}>فعال</button><button className={loanFilter === "settled" ? "active" : ""} onClick={() => setLoanFilter("settled")}>تسویه‌شده</button><button className={loanFilter === "all" ? "active" : ""} onClick={() => setLoanFilter("all")}>همه</button></div>
++              <div className="loan-stack">
++                {filteredLoans.map((loan) => <LoanCard key={loan.id} loan={loan} onEdit={() => openLoanForm(loan)} onDelete={() => deleteLoan(loan)} onPayment={(installment) => openLoanPayment(loan, installment)} onDeletePayment={deleteLoanPayment} />)}
++                {!filteredLoans.length && <EmptyState icon="bank" title={data.loans.length ? "قراردادی مطابق فیلتر پیدا نشد" : "اولین وام یا خرید اقساطی را ثبت کن"} detail={data.loans.length ? "جست‌وجو یا فیلتر را تغییر بده." : "طرف حساب این بخش بانک، فروشگاه یا مؤسسه است؛ نه شخص دفتر کل."} action={data.loans.length ? "نمایش همه" : "ثبت قرارداد"} onAction={() => data.loans.length ? setLoanFilter("all") : openLoanForm()} />}
++              </div>
++            </section>
++          )}
++
+           {tab === "calendar" && (
+             <section className="page">
+-              <div className="page-heading"><div><p className="eyebrow">برنامه پرداخت</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={() => openEntry("installment")}>+ سررسید</button></div>
++              <div className="page-heading"><div><p className="eyebrow">چک‌ها، بدهی‌های تاریخ‌دار و اقساط</p><h2>سررسیدها</h2></div><button className="small-primary" onClick={openLoans}>وام و اقساط</button></div>
+               <div className="timeline">
+-                {upcoming.map((entry) => <div className="timeline-row" key={entry.id}><div className={`date-badge ${entry.dueDate && entry.dueDate < today ? "overdue" : ""}`}><strong>{persianDate(entry.dueDate).split(" ")[0]}</strong><span>{persianDate(entry.dueDate).split(" ").slice(1).join(" ")}</span></div><EntryRow entry={entry} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} compact /></div>)}
+-                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="برای اقساط و چک‌ها تاریخ سررسید بگذار." action="ثبت سررسید" onAction={() => openEntry("installment")} />}
++                {upcoming.map((item) => <div className="timeline-row" key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} /></div>)}
++                {!upcoming.length && <EmptyState icon="calendar" title="تقویمت خالی است" detail="سررسید چک‌ها، بدهی‌های تاریخ‌دار و اقساط بانکی/فروشگاهی اینجا یکجا دیده می‌شود." action="ثبت وام / خرید اقساطی" onAction={() => openLoanForm()} />}
+               </div>
+             </section>
+           )}
+@@ -380,13 +489,15 @@ export function FinanceApp() {
+         <section className="bottom-sheet" role="dialog" aria-modal="true">
+           <div className="sheet-handle" />
+           <button className="sheet-close" onClick={() => setSheet(null)} aria-label="بستن">×</button>
+-          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
++          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
+           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
+           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}
+           {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
+           {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
+           {sheet === "settlement" && settlementDraft && <SettlementForm group={data?.groups.find((group) => group.id === settlementDraft.groupId)} draft={settlementDraft} onSubmit={submitSettlement} busy={busy} />}
+           {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} />}
++          {sheet === "loan-form" && <LoanForm key={editingLoan?.id ?? "new-loan"} initialLoan={editingLoan} onSubmit={submitLoan} busy={busy} />}
++          {sheet === "loan-payment" && paymentLoan && paymentInstallment && <LoanPaymentForm loan={paymentLoan} installment={paymentInstallment} onSubmit={submitLoanPayment} busy={busy} />}
+           {sheet === "tools" && <ToolsSheet onExport={handleExport} onImport={handleImport} busy={busy} />}
+         </section>
+       </div>}
+@@ -411,6 +522,29 @@ function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entr
+   </article>;
+ }
+ 
++function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPayment, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPayment: () => void; compact?: boolean }) {
++  return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""}`}>
++    <span className={`due-source ${item.source}`}><Icon name={item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt"} size={16} /></span>
++    <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
++    <div className="due-amount"><strong className={item.source === "entry" && item.entry.direction === "receivable" ? "text-green" : "text-coral"}>{item.source === "entry" && item.entry.direction === "receivable" ? "+" : "−"}{money(item.amount)}</strong>{item.source === "loan" ? <button onClick={onLoanPayment}>ثبت پرداخت</button> : <span className="due-entry-actions"><button onClick={onEntryToggle}>تسویه</button><button onClick={onEntryEdit} aria-label="ویرایش سررسید"><Icon name="edit" size={12} /></button></span>}</div>
++  </article>;
++}
++
++function LoanCard({ loan, onEdit, onDelete, onPayment, onDeletePayment }: { loan: Loan; onEdit: () => void; onDelete: () => void; onPayment: (installment: LoanInstallment) => void; onDeletePayment: (id: number) => void }) {
++  const progress = loan.totalPayable > 0 ? Math.min(100, Math.round((loan.totalPaid / loan.totalPayable) * 100)) : 0;
++  const providerIcon: IconName = loan.providerType === "store" ? "store" : "bank";
++  return <article className={`loan-card ${loan.remainingAmount === 0 ? "settled" : ""}`}>
++    <div className="loan-card-head"><span className="loan-provider-icon"><Icon name={providerIcon} size={19} /></span><div><small>{providerTypeLabel[loan.providerType]} • {loan.providerName}</small><h3>{loan.title}</h3>{loan.contractNumber && <i>قرارداد: {loan.contractNumber}</i>}</div><span className="loan-card-actions"><button onClick={onEdit} aria-label="ویرایش قرارداد"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف قرارداد"><Icon name="trash" size={13} /></button></span></div>
++    <div className="loan-progress"><span><i style={{ width: `${progress}%` }} /></span><small>{number.format(progress)}٪ پرداخت شده</small></div>
++    <div className="loan-money-grid"><div><small>کل قرارداد</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong className={loan.remainingAmount ? "text-coral" : "text-green"}>{loan.remainingAmount ? money(loan.remainingAmount) : "تسویه کامل"}</strong></div></div>
++    {loan.financeCost > 0 && <p className=
