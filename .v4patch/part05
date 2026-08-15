@@ -1,0 +1,76 @@
+) => sum + share.amount, 0);
+         const settlementEffect = settlements.reduce((sum, settlement) => sum + (settlement.fromPersonId === member.personId ? settlement.amount : 0) - (settlement.toPersonId === member.personId ? settlement.amount : 0), 0);
+-        return { personId: member.personId, name: member.name, paid, owed, balance: paid - owed + settlementEffect };
+-      });
++        return { personId: member.personId, name: names.get(member.personId) ?? "نامشخص", paid, owed, balance: paid - owed + settlementEffect, active: member.active !== false };
++      }).filter((balance) => balance.active || balance.balance !== 0).map(({ active: _active, ...balance }) => balance);
+       return { id: group.id, name: group.name, members, expenses, totalSpent: expenses.reduce((sum, expense) => sum + expense.amount, 0), balances, suggestions: makeSettlementSuggestions(balances), settlements };
+     });
+   return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups) };
+ }
+ 
++async function getAllGroupMembers(db: IDBDatabase, groupId: number) {
++  return (await all<StoredMember & { id: number }>(db, "members")).filter((member) => member.groupId === groupId);
++}
++
+ async function getGroupMembers(db: IDBDatabase, groupId: number) {
+-  return (await all<StoredMember & { id: number }>(db, "members")).filter((member) => member.groupId === groupId);
++  return (await getAllGroupMembers(db, groupId)).filter((member) => member.active !== false);
+ }
+ 
+ function splitWeightsForGroup(payload: Record<string, unknown>, members: Array<StoredMember & { id: number }>) {
+@@ -448,7 +453,60 @@
+     if (members.some((member) => !existingPersons.has(member.personId))) throw new Error("یکی از اعضای گروه در دفتر اشخاص پیدا نشد.");
+     const transaction = db.transaction(["groups", "members"], "readwrite");
+     const groupId = Number(await requestResult(transaction.objectStore("groups").add({ name, createdAt: new Date().toISOString() } satisfies StoredGroup)));
+-    for (const member of members) transaction.objectStore("members").add({ groupId, ...member } satisfies StoredMember);
++    for (const member of members) transaction.objectStore("members").add({ groupId, ...member, active: true } satisfies StoredMember);
++    await transactionDone(transaction);
++    return;
++  }
++
++  if (operation === "update_group") {
++    const groupId = positiveInteger(payload.id, "شناسه گروه");
++    const name = cleanText(payload.name, 80);
++    if (!name) throw new Error("نام گروه را وارد کنید.");
++    const members = uniqueMemberWeights(payload.members);
++    if (members.length < 2) throw new Error("برای گروه دُنگی حداقل دو عضو فعال لازم است.");
++    const [groups, persons, currentMembers] = await Promise.all([
++      all<StoredGroup & { id: number }>(db, "groups"),
++      all<StoredPerson & { id: number }>(db, "persons"),
++      getAllGroupMembers(db, groupId),
++    ]);
++    const group = groups.find((item) => item.id === groupId);
++    if (!group) throw new Error("گروه موردنظر پیدا نشد.");
++    const existingPersons = new Set(persons.map((person) => person.id));
++    if (members.some((member) => !existingPersons.has(member.personId))) throw new Error("یکی از اعضای گروه در دفتر اشخاص پیدا نشد.");
++    const next = new Map(members.map((member) => [member.personId, member.shareWeight]));
++    const existingByPerson = new Map(currentMembers.map((member) => [member.personId, member]));
++    const transaction = db.transaction(["groups", "members"], "readwrite");
++    transaction.objectStore("groups").put({ ...group, id: groupId, name });
++    const memberStore = transaction.objectStore("members");
++    for (const current of currentMembers) {
++      const nextWeight = next.get(current.personId);
++      memberStore.put({ ...current, id: current.id, shareWeight: nextWeight ?? current.shareWeight, active: nextWeight !== undefined });
++    }
++    for (const member of members) {
++      if (!existingByPerson.has(member.personId)) memberStore.add({ groupId, ...member, active: true } satisfies StoredMember);
++    }
++    await transactionDone(transaction);
++    return;
++  }
++
++  if (operation === "delete_group") {
++    const groupId = positiveInteger(payload.id, "شناسه گروه");
++    const [groups, members, expenses, shares, settlements] = await Promise.all([
++      all<StoredGroup & { id: number }>(db, "groups"),
++      all<StoredMember & { id: number }>(db, "members"),
++      all<StoredExpense & { id: number }>(db, "expenses"),
++      all<StoredShare & { id: number }>(db, "shares"),
++      all<StoredSettlement & { id: number }>(db, "settlements"),
++    ]);
++    if (!groups.some((group) => group.id === groupId)) throw new Error("گروه موردنظر پیدا نشد.");
++    const groupExpenses = expenses.filter((expense) => expense.groupId === groupId);
++    const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
++    const transaction = db.transaction(["groups", "members", "expenses", "shares", "settlements"], "readwrite");
++    transaction.
