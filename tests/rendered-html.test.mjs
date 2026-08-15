@@ -32,7 +32,7 @@ test("ships a device-local offline database and no starter preview", async () =>
   ]);
   assert.match(hosting, /"d1": null/);
   assert.match(localDb, /indexedDB\.open/);
-  assert.match(localDb, /DB_VERSION = 3/);
+  assert.match(localDb, /DB_VERSION = 4/);
   assert.match(localDb, /"settlements"/);
   assert.match(localDb, /add_entry/);
   assert.match(localDb, /add_group/);
@@ -76,11 +76,11 @@ test("unifies direct balances and dong effects per person", async () => {
   assert.match(localDb, /directBalance/);
   assert.match(localDb, /dongBalance/);
   assert.match(localDb, /group\.suggestions\.reduce/);
-  assert.match(localDb, /finalBalance: directBalance \+ dongBalance/);
+  assert.match(localDb, /finalBalance: directBalance \+ checkBalance \+ dongBalance/);
   assert.match(localDb, /expense\.payerPersonId === self\.id/);
   assert.match(localDb, /expense\.payerPersonId === person\.id/);
   assert.match(localDb, /settlement\.fromPersonId === person\.id && settlement\.toPersonId === self\.id/);
-  assert.match(app, /ثبت‌های مستقیم \+ دُنگ‌ها \+ تسویه‌ها \+ مانده وام‌ها/);
+  assert.match(app, /ثبت‌های مستقیم \+ دُنگ‌ها \+ چک‌ها \+ تسویه‌ها \+ مانده وام‌ها/);
   assert.match(app, /گردش کامل/);
   assert.match(app, /تفکیک دُنگ‌ها/);
 });
@@ -146,4 +146,36 @@ test("models bank and store installments independently from person ledgers", asy
   assert.match(jalali, /buildJalaliInstallmentDates/);
   assert.match(css, /\.calendar-trigger \{[^}]*place-items: center/s);
   assert.match(css, /\.loan-card/);
+});
+
+
+test("models received and issued cheques as dedicated financial documents", async () => {
+  const [app, localDb, serviceWorker] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+  ]);
+  assert.match(localDb, /type CheckRecord/);
+  assert.match(localDb, /DB_VERSION = 4/);
+  assert.match(localDb, /"checks"/);
+  assert.match(localDb, /operation === "add_check" \|\| operation === "update_check"/);
+  assert.match(localDb, /update_check_status/);
+  assert.match(localDb, /delete_check/);
+  assert.match(localDb, /شناسه صیادی چک باید ۱۶ رقم باشد/);
+  assert.match(localDb, /checkBalance/);
+  assert.match(app, /دفتر چک‌ها/);
+  assert.match(app, /چک گرفته‌ام/);
+  assert.match(app, /چک داده‌ام/);
+  assert.match(app, /صادرکننده \/ صاحب حساب/);
+  assert.match(app, /در وجه \/ ذی‌نفع فعلی/);
+  assert.match(app, /واگذارکننده به من/);
+  assert.match(app, /طرف حساب مالی/);
+  assert.match(app, /اگر همین بدهی\/طلب را قبلاً جدا ثبت کرده‌ای/);
+  assert.match(app, /شناسه صیادی/);
+  assert.match(app, /وضعیت در صیاد/);
+  assert.match(app, /function chooseDirection/);
+  assert.match(app, /setIssuerName\(next === "issued" \? "من" : ""\)/);
+  assert.match(app, /setBeneficiaryName\(next === "received" \? "من" : ""\)/);
+  assert.match(app, /برگت?شتی/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v5/);
 });
