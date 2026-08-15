@@ -1,0 +1,17 @@
+member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><div className="participant-share"><span>سهم</span><ShareStepper label={`سهم خرید ${member.name}`} value={weight} onChange={(value) => setWeights({ ...weights, [member.personId]: value })} /></div></div>; })}</div>}
+     <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
+     <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
+   </form>;
+diff --git a/app/globals.css b/app/globals.css
+index 6a8ea22..dead246 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -443,3 +443,47 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
+   .check-summary-grid.personal { grid-template-columns: repeat(3,1fr); }.check-summary-grid.personal > div:first-child { grid-column: auto; }
+   .check-current-holder { grid-template-columns: 1fr; }
+ }
++
++
++/* v9 — monthly due filters, completed to-do states and share steppers */
++.due-toolbar { margin: -2px 0 13px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
++.due
