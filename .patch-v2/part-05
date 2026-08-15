@@ -1,0 +1,103 @@
+ 12px; border-radius: 14px; background: #f1eee6; }.split-preview strong { display: block; margin-bottom: 8px; font-size: 10px; }.split-preview div { display: flex; flex-wrap: wrap; gap: 6px; }.split-preview span { padding: 5px 7px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 8px; }
+ 
+ .loading { min-height: 65dvh; display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap; }.loading span { width: 9px; height: 9px; border-radius: 50%; background: var(--green); animation: pulse 1s infinite alternate; }.loading span:nth-child(2) { animation-delay: .2s; }.loading span:nth-child(3) { animation-delay: .4s; }.loading p { width: 100%; text-align: center; color: var(--muted); font-size: 10px; } @keyframes pulse { to { transform: translateY(-7px); opacity: .35; } }
+diff -ruN orig_norm/app/local-db.ts new_norm/app/local-db.ts
+--- orig_norm/app/local-db.ts	2026-08-15 11:57:32.722998482 +0000
++++ new_norm/app/local-db.ts	2026-08-15 11:57:32.724369515 +0000
+@@ -1,7 +1,8 @@
+ export type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
+ export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
+ export type GroupMember = { personId: number; name: string; shareWeight: number };
+-export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string };
++export type ExpenseShare = { personId: number; name: string; amount: number };
++export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[] };
+ export type Balance = { personId: number; name: string; paid: number; owed: number; balance: number };
+ export type Settlement = { from: string; to: string; amount: number };
+ export type Group = { id: number; name: string; members: GroupMember[]; expenses: Expense[]; totalSpent: number; balances: Balance[]; settlements: Settlement[] };
+@@ -11,7 +12,7 @@
+ type StoredEntry = Omit<Entry, "id" | "personName"> & { id?: number };
+ type StoredGroup = { id?: number; name: string; createdAt: string };
+ type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number };
+-type StoredExpense = Omit<Expense, "id" | "payerName"> & { id?: number; groupId: number; createdAt: string };
++type StoredExpense = Omit<Expense, "id" | "payerName" | "shares"> & { id?: number; groupId: number; createdAt: string };
+ type StoredShare = { id?: number; expenseId: number; personId: number; amount: number };
+ 
+ const DB_NAME = "hamhesab-local";
+@@ -80,6 +81,26 @@
+   return parsed;
+ }
+ 
++function nonNegativeInteger(value: unknown, label: string) {
++  const parsed = Math.round(Number(value));
++  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${label} نمی‌تواند منفی باشد.`);
++  return parsed;
++}
++
++export function allocateExpenseShares(members: Array<{ personId: number; shareWeight: number }>, amount: number) {
++  const weightedMembers = members.filter((member) => member.shareWeight > 0);
++  const totalWeight = weightedMembers.reduce((sum, member) => sum + member.shareWeight, 0);
++  if (totalWeight <= 0) throw new Error("برای ثبت خرید، سهم حداقل یک عضو باید بیشتر از صفر باشد.");
++  const lastWeightedPersonId = weightedMembers[weightedMembers.length - 1].personId;
++  let allocated = 0;
++  return members.map((member) => {
++    if (member.shareWeight <= 0) return { personId: member.personId, amount: 0 };
++    const shareAmount = member.personId === lastWeightedPersonId ? amount - allocated : Math.floor((amount * member.shareWeight) / totalWeight);
++    allocated += shareAmount;
++    return { personId: member.personId, amount: shareAmount };
++  });
++}
++
+ export function makeSettlements(balances: Array<{ personId: number; name: string; balance: number }>) {
+   const creditors = balances.filter((item) => item.balance > 0).map((item) => ({ ...item }));
+   const debtors = balances.filter((item) => item.balance < 0).map((item) => ({ ...item, debt: -item.balance }));
+@@ -121,12 +142,22 @@
+     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+     .map((group) => {
+       const members = storedMembers.filter((member) => member.groupId === group.id).map((member) => ({ personId: member.personId, name: names.get(member.personId) ?? "نامشخص", shareWeight: member.shareWeight }));
+-      const expenses = storedExpenses
+-        .filter((expense) => expense.groupId === group.id)
+-        .map((expense) => ({ id: expense.id, payerPersonId: expense.payerPersonId, payerName: names.get(expense.payerPersonId) ?? "نامشخص", title: expense.title, amount: expense.amount, expenseDate: expense.expenseDate }))
+-        .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.id - a.id);
+-      const expenseIds = new Set(expenses.map((expense) => expense.id));
++      const groupExpenses = storedExpenses.filter((expense) => expense.groupId === group.id);
++      const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
+       const shares = storedShares.filter((share) => expenseIds.has(share.expenseId));
++      const expenses = groupExpenses
++        .map((expense) => ({
++          id: expense.id,
++          payerPersonId: expense.payerPersonId,
++          payerName: names.get(expense.payerPersonId) ?? "نامشخص",
++          title: expense.title,
++          amount: expense.amount,
++          expenseDate: expense.expenseDate,
++          shares: shares
++            .filter((share) => share.expenseId === expense.id)
++            .map((share) => ({ personId: share.personId, name: names.get(share.personId) ?? "نامشخص", amount: share.amount })),
++        }))
++        .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.id - a.id);
+       const balances = members.map((member) => {
+         const paid = expenses.filter((expense) => expense.payerPersonId === member.personId).reduce((sum, expense) => sum + expense.amount, 0);
+         const owed = shares.filter((share) => share.personId === member.personId).reduce((sum, share) => sum + share.amount, 0);
+@@ -199,7 +230,7 @@
+     if (!name) throw new Error("نام گروه را وارد کنید.");
+     const members = (Array.isArray(payload.members) ? payload.members : []).map((item) => {
+       const member = item as Record<string, unknown>;
+-      return { personId: positiveInteger(member.personId, "عضو"), shareWeight: positiveInteger(member.shareWeight, "سهم") };
++      return { personId: positiveInteger(member.personId, "عضو"), shareWeight: nonNegativeInteger(member.shareWeight, "سهم") };
+     });
+     if (members.length < 2) throw new Error("برای گروه دُنگی حداقل دو نفر لازم است.");
+     const transaction = db.transaction(["groups", "members"], "readwrite");
+@@ -216,13 +247,7 @@
+     if (!title) throw new Error("عنوان خرید را وارد کنید.");
+     const members = (await all<StoredMember & { id: number }>(db, "members")).filter((member) => member.groupId === groupId);
+     if (!members.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو این گروه نیست.");
+-    const totalWeight = members.reduce((sum, member) => sum + member.shareWeight, 0);
+-    let allocated = 0;
+-    const allocations = members.map((member, index) => {
+-      const shareAmount = index === members.length - 1 ? amount - allocated : Math.floor((amount * member.shareWeight) / totalWeight);
+-      allocated += shareAmount;
+-      return { personId: member.personId, amount: shareAmount };
+-    });
++    const allocations = allocateExpenseShares(members, amount);
+     const transaction = db.transaction(["expenses", "shares"], "readwrite");
+     con
