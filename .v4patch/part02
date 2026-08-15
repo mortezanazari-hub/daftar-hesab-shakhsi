@@ -1,0 +1,28 @@
+"group-head-actions"><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></div></div>
++    <div className="group-card-head"><div className="group-title"><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو فعال • جمع هزینه {money(group.totalSpent)}</p></div></div><div className="group-head-actions"><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></div></div>
+     <div className="balances-list">
+       {group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)} • سهم {money(balance.owed)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}
+     </div>
+@@ -470,7 +478,7 @@
+   </form>;
+ }
+ 
+-function GroupForm({ persons, values, setValues, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
++function GroupForm({ persons, values, setValues, initialGroup, onSubmit, onNeedPerson, busy }: { persons: Person[]; values: Record<number, number>; setValues: (value: Record<number, number>) => void; initialGroup?: Group; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNeedPerson: () => void; busy: boolean }) {
+   const [candidateId, setCandidateId] = useState("");
+   const selectedIds = new Set(Object.keys(values).map(Number));
+   const selectedPeople = persons.filter((person) => selectedIds.has(person.id));
+@@ -489,28 +497,31 @@
+     setValues(next);
+   }
+ 
+-  return <form onSubmit={onSubmit}><div className="sheet-title"><p>فقط افرادی را که واقعاً عضو این دُنگ هستند اضافه کن</p><h2>گروه دُنگی جدید</h2></div>
+-    <label>نام گروه<input name="name" required autoFocus placeholder="مثلاً سفر شمال" /></label>
++  return <form onSubmit={onSubmit}><div className="sheet-title"><p>{initialGroup ? "نام، اعضای فعال و سهم‌های پیش‌فرض را مدیریت کن" : "فقط افرادی را که واقعاً عضو این دُنگ هستند اضافه کن"}</p><h2>{initialGroup ? "ویرایش گروه دُنگی" : "گروه دُنگی جدید"}</h2></div>
++    <label>نام گروه<input name="name" required autoFocus defaultValue={initialGroup?.name ?? ""} placeholder="مثلاً سفر شمال" /></label>
+     <div className="member-picker-title"><strong>اعضای گروه</strong><button type="button" onClick={onNeedPerson}><Icon name="user-plus" size={15} /> شخص جدید</button></div>
+     <div className="member-add-row"><select aria-label="انتخاب عضو جدید" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}><option value="">انتخاب شخص برای افزودن</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select><button type="button" onClick={addMember} disabled={!candidateId}>+ افزودن عضو</button></div>
+     {selectedPeople.length ? <div className="member-picker selected-members">{selectedPeople.map((person) => <div className="selected" key={person.id}><div className="member-identity"><span><Icon name="user" size={14} /></span><strong>{person.name}</strong>{person.isSelf && <small>حساب من</small>}</div><label>سهم پیش‌فرض<input aria-label={`سهم ${person.name}`} type="number" min="0" max="100" value={values[person.id]} onChange={(event) => setValues({ ...values, [person.id]: Math.max(0, Number(event.target.value) || 0) })} /></label><button className="remove-member" type="button" onClick={() => removeMember(person.id)} aria-label={`حذف ${person.name} از گروه`}><Icon name="trash" size={14} /></button></div>)}</div> : <div className="member-picker-empty"><Icon name="users" size={24} /><strong>هنوز عضوی اضافه نشده</strong><small>از فهرست بالا اعضای همین گروه را انتخاب کن.</small></div>}
+-    <p className="form-hint">سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آینده است؛ در هر خرید می‌توانی افراد و وزن سهم را جداگانه تغییر بدهی.</p>
+-    <SubmitButton busy={busy} label="ساخت گروه" />
++    <p className="form-hint">{initialGroup ? "حذف یک عضو از این فهرست فقط عضویت فعال او را برای خریدهای آینده پایان می‌دهد؛ سابقه خریدها و تسویه‌های قبلی حفظ می‌شود. اگر مانده‌ای از گذشته باز باشد، همچنان در محاسبات گروه دیده خواهد شد." : "سهم پیش‌فرض هر عضو صفر است. این عدد فقط پیشنهاد اولیه برای خریدهای آ
