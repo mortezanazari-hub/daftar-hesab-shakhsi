@@ -268,3 +268,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .participant { grid-template-columns: 1fr 82px; }
   .settlement-history article { grid-template-columns: 28px 1fr auto; }.settlement-history article > button { grid-column: 3; }
 }
+
+/* Group management controls */
+.group-head-actions .group-icon-action { width: 30px; min-width: 30px; padding: 7px; justify-content: center; }
+.group-head-actions .group-icon-action.danger { color: #9c4a3a; background: var(--coral-soft); }
+.group-head-actions .group-icon-action.danger:hover { background: #efd0c8; }
+.group-head-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 178px; }
+@media (max-width: 380px) {
+  .group-head-actions { flex-direction: row; max-width: 146px; }
+}
