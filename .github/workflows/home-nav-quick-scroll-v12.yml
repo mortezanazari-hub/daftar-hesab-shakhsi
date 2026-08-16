@@ -17,111 +17,8 @@ jobs:
           ref: agent/home-nav-quick-scroll-v12
           fetch-depth: 0
 
-      - name: Apply navigation and quick-action layout
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          app_path = Path('app/FinanceApp.tsx')
-          app = app_path.read_text(encoding='utf-8')
-
-          old_quick = '''              <div className="section-title"><h2>ثبت سریع</h2><button onClick={() => setSheet("actions")}>همه موارد</button></div>
-              <div className="quick-grid">
-                {quickEntryKinds.slice(0, 2).map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
-                <button className="quick-action" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><span>وام و اقساط</span></button>
-                <button className="quick-action" onClick={openChecks}><span className="quick-icon violet"><Icon name="check" /></span><span>چک‌ها</span></button>
-              </div>'''
-          new_quick = '''              <div className="section-title"><h2>ثبت سریع</h2></div>
-              <div className="quick-grid quick-scroll" aria-label="ثبت‌های سریع">
-                {quickEntryKinds.map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
-                <button className="quick-action" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><span>وام و اقساط</span></button>
-                <button className="quick-action" onClick={() => openCheckForm()}><span className="quick-icon violet"><Icon name="check" /></span><span>چک</span></button>
-                <button className="quick-action" onClick={() => data.groups.length ? openExpense() : beginGroup()}><span className="quick-icon blue"><Icon name="users" /></span><span>{data.groups.length ? "خرید دُنگی" : "گروه دُنگی"}</span></button>
-                <button className="quick-action" onClick={() => setSheet("person")}><span className="quick-icon sand"><Icon name="user-plus" /></span><span>شخص جدید</span></button>
-              </div>'''
-          if old_quick not in app:
-              raise SystemExit('quick action block not found')
-          app = app.replace(old_quick, new_quick, 1)
-
-          old_nav = '''      <nav className="bottom-nav" aria-label="منوی اصلی">
-        <NavButton active={tab === "home"} icon="home" label="خانه" onClick={() => setTab("home")} />
-        <NavButton active={tab === "ledger"} icon="book" label="دفتر" onClick={() => setTab("ledger")} />
-        <button className="nav-add" aria-label="ثبت جدید" onClick={() => setSheet("actions")}>+</button>
-        <NavButton active={tab === "groups"} icon="users" label="دُنگ‌ها" onClick={() => setTab("groups")} />
-        <NavButton active={tab === "checks"} icon="check" label="چک‌ها" onClick={openChecks} />
-        <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
-      </nav>'''
-          new_nav = '''      <nav className="bottom-nav" aria-label="منوی اصلی">
-        <NavButton active={tab === "ledger"} icon="book" label="دفتر" onClick={() => setTab("ledger")} />
-        <NavButton active={tab === "groups"} icon="users" label="دُنگ‌ها" onClick={() => setTab("groups")} />
-        <NavButton active={tab === "home"} icon="home" label="خانه" onClick={() => setTab("home")} />
-        <NavButton active={tab === "checks"} icon="check" label="چک‌ها" onClick={openChecks} />
-        <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
-      </nav>'''
-          if old_nav not in app:
-              raise SystemExit('bottom navigation block not found')
-          app = app.replace(old_nav, new_nav, 1)
-          app_path.write_text(app, encoding='utf-8')
-
-          css_path = Path('app/globals.css')
-          css = css_path.read_text(encoding='utf-8')
-          old_grid = 'grid-template-columns: repeat(6, 1fr);'
-          if old_grid not in css:
-              raise SystemExit('six-column navigation rule not found')
-          css = css.replace(old_grid, 'grid-template-columns: repeat(5, 1fr);', 1)
-          css += '''\n\n/* v12 — centered home navigation and scrollable quick actions */\n.quick-scroll {\n  display: flex;\n  gap: 9px;\n  overflow-x: auto;\n  overscroll-behavior-inline: contain;\n  scroll-snap-type: x proximity;\n  scrollbar-width: none;\n  margin-inline: -18px;\n  padding: 2px 18px 8px;\n}\n.quick-scroll::-webkit-scrollbar { display: none; }\n.quick-scroll .quick-action {\n  flex: 0 0 92px;\n  min-width: 92px;\n  scroll-snap-align: start;\n}\n.bottom-nav > button:nth-child(3) {\n  color: var(--green);\n}\n.bottom-nav > button:nth-child(3).active {\n  color: var(--green);\n  font-weight: 900;\n}\n'''
-          css_path.write_text(css, encoding='utf-8')
-
-          sw_path = Path('public/sw.js')
-          sw = sw_path.read_text(encoding='utf-8')
-          if 'daftar-hesab-offline-v9' not in sw:
-              raise SystemExit('expected v9 service-worker cache not found')
-          sw_path.write_text(sw.replace('daftar-hesab-offline-v9', 'daftar-hesab-offline-v10', 1), encoding='utf-8')
-
-          test_path = Path('tests/rendered-html.test.mjs')
-          tests = test_path.read_text(encoding='utf-8')
-          tests = tests.replace('daftar-hesab-offline-v9', 'daftar-hesab-offline-v10', 1)
-          old_test = '''test("keeps cheque management directly accessible from the main navigation", async () => {
-  const [app, css] = await Promise.all([
-    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-  ]);
-  assert.match(app, /active=\\{tab === "checks"\\} icon="check" label="چک‌ها" onClick=\\{openChecks\\}/);
-  assert.match(css, /grid-template-columns: repeat\\(6, 1fr\\)/);
-});'''
-          new_test = '''test("keeps cheque management directly accessible and centers home in the five-item navigation", async () => {
-  const [app, css] = await Promise.all([
-    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-  ]);
-  assert.match(app, /active=\\{tab === "checks"\\} icon="check" label="چک‌ها" onClick=\\{openChecks\\}/);
-  assert.match(app, /label="دُنگ‌ها"[\\s\\S]*label="خانه"[\\s\\S]*label="چک‌ها"/);
-  assert.doesNotMatch(app, /className="nav-add"/);
-  assert.match(css, /grid-template-columns: repeat\\(5, 1fr\\)/);
-});
-
-test("shows every quick action in a horizontally scrollable home strip", async () => {
-  const [app, css] = await Promise.all([
-    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-  ]);
-  assert.match(app, /className="quick-grid quick-scroll"/);
-  assert.match(app, /quickEntryKinds\\.map/);
-  assert.match(app, /<span>وام و اقساط<\\/span>/);
-  assert.match(app, /<span>چک<\\/span>/);
-  assert.match(app, /خرید دُنگی/);
-  assert.match(app, /شخص جدید/);
-  assert.doesNotMatch(app, /ثبت سریع<\\/h2><button[^>]*>همه موارد/);
-  assert.match(css, /\\.quick-scroll \\{/);
-  assert.match(css, /overflow-x: auto/);
-  assert.match(css, /flex: 0 0 92px/);
-});'''
-          if old_test not in tests:
-              raise SystemExit('navigation regression test not found')
-          tests = tests.replace(old_test, new_test, 1)
-          test_path.write_text(tests, encoding='utf-8')
-          PY
+      - name: Apply patch
+        run: python .v12patch/apply.py
 
       - name: Verify intended UI changes
         run: |
@@ -147,11 +44,10 @@ test("shows every quick action in a horizontally scrollable home strip", async (
         run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
 
       - name: Commit validated source
-        shell: bash
         run: |
-          rm .github/workflows/home-nav-quick-scroll-v12.yml
+          rm -rf .v12patch .github/workflows/home-nav-quick-scroll-v12.yml
           git config user.name "Morteza Nazari"
           git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
-          git add app/FinanceApp.tsx app/globals.css public/sw.js tests/rendered-html.test.mjs .github/workflows/home-nav-quick-scroll-v12.yml
+          git add app/FinanceApp.tsx app/globals.css public/sw.js tests/rendered-html.test.mjs .v12patch .github/workflows/home-nav-quick-scroll-v12.yml
           git commit -m "Center home navigation and expand quick actions"
           git push origin HEAD:agent/home-nav-quick-scroll-v12
