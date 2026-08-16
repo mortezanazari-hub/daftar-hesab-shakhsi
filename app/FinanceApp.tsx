@@ -20,7 +20,7 @@ import {
   type ReceiptAttachment,
   type SettlementSuggestion,
 } from "./local-db";
-import { attachmentFromFormData, shareAttachment, shareTransactionReceipt, type TransactionReceiptData } from "./transaction-share";
+import { attachmentFromFormData, openAttachment, shareAttachment, shareTransactionReceipt, type TransactionReceiptData } from "./transaction-share";
 import { shareGroupPdf, sharePersonLedgerPdf } from "./report-pdf";
 
 type Sheet = "actions" | "person" | "entry" | "entry-settlement" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "transaction-detail" | "tools" | null;
@@ -1204,7 +1204,8 @@ function TransactionDetailShell({ category, title, amount, tone, date, status, r
 
     {attachment && <section className="transaction-evidence-card">
       <div className="evidence-head"><div><span><Icon name="receipt" size={16} /></span><div><strong>مدرک پیوست‌شده</strong><small>{attachment.fileName} • {number.format(Math.max(1, Math.round(attachment.size / 1024)))} کیلوبایت</small></div></div><b>{imageAttachment ? "تصویر" : "PDF"}</b></div>
-      {imageAttachment ? <button className="evidence-preview" onClick={() => void shareAttachment(attachment, `پیوست ${title}`)} aria-label="نمایش و ارسال مدرک پیوست‌شده"><img src={imageAttachment.dataUrl} alt={`مدرک پیوست‌شده برای ${title}`} /><span>لمس برای ارسال فایل اصلی</span></button> : <button className="evidence-file" onClick={() => void shareAttachment(attachment, `پیوست ${title}`)}><span className="pdf-badge">PDF</span><span><strong>{attachment.fileName}</strong><small>فایل اصلی همراه رسید کامل نیز ارسال می‌شود</small></span><b>ارسال فایل ‹</b></button>}
+      {imageAttachment ? <button className="evidence-preview" onClick={() => void openAttachment(attachment)} aria-label="باز کردن مدرک پیوست‌شده"><img src={imageAttachment.dataUrl} alt={`مدرک پیوست‌شده برای ${title}`} /><span>لمس برای باز کردن مدرک</span></button> : <button className="evidence-file" onClick={() => void openAttachment(attachment)} aria-label="باز کردن فایل PDF پیوست‌شده"><span className="pdf-badge">PDF</span><span><strong>{attachment.fileName}</strong><small>برای مشاهده فایل اصلی لمس کن</small></span><b>باز کردن ‹</b></button>}
+      <div className="evidence-actions"><button type="button" onClick={() => void shareAttachment(attachment, `پیوست ${title}`)}><Icon name="upload" size={14} /> ارسال فایل اصلی</button></div>
     </section>}
 
     <div className="transaction-detail-content">{children}</div>

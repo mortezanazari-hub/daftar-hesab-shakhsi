@@ -178,7 +178,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -313,7 +313,7 @@ test("distinguishes user attachments from app-generated transaction receipts", a
   assert.match(app, /ارسال رسید کامل/);
   assert.match(app, /مدرک پیوست‌شده/);
   assert.match(css, /\.transaction-detail-share/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
 
 test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
@@ -367,7 +367,7 @@ test("keeps mobile person/group layouts readable and exports complete PDF report
   const groupFix = css.lastIndexOf(".group-card-head > .group-title-button");
   assert.ok(ledgerFix > legacyLedgerButton);
   assert.ok(groupFix > legacyGroupButton);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
 
 
@@ -390,7 +390,7 @@ test("direct debt and receivable settlements create linked counterpart transacti
   assert.match(app, /بدهی \/ طلب اصلی/);
   assert.match(app, /handleEntrySettlement\(entry\)/);
   assert.doesNotMatch(app, /onToggleEntry=\{\(entry\) => void post\(\{ operation: "toggle_entry"/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
 
 
@@ -409,7 +409,7 @@ test("uses browser history so the phone Back button moves one screen back before
   assert.match(app, /window\.history\.back\(\)/);
   assert.match(app, /onClick=\{dismissSheet\}/);
   assert.match(app, /if \(close\) dismissSheet\(\)/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
 
 
@@ -424,7 +424,13 @@ test("polishes transaction details and shares generated receipts together with a
   assert.match(app, /رسید کامل این تراکنش/);
   assert.match(app, /shareTransactionReceipt\(receipt, attachment\)/);
   assert.match(app, /transaction-evidence-card/);
+  assert.match(app, /openAttachment\(attachment\)/);
+  assert.match(app, /لمس برای باز کردن مدرک/);
+  assert.match(app, /ارسال فایل اصلی/);
   assert.match(app, /imageAttachment\.dataUrl/);
+  assert.match(sharing, /export async function openAttachment/);
+  assert.match(sharing, /window\.open\("", "_blank"\)/);
+  assert.match(sharing, /URL\.createObjectURL\(file\)/);
   assert.match(sharing, /async function buildReceiptImage\(data: TransactionReceiptData, attachment\?/);
   assert.match(sharing, /const completeFiles = attachmentFile \? \[receiptFile, attachmentFile\] : \[receiptFile\]/);
   assert.match(sharing, /navigator\.canShare\?\.\(\{ files: completeFiles \}\)/);
@@ -433,5 +439,5 @@ test("polishes transaction details and shares generated receipts together with a
   assert.match(css, /\.transaction-receipt-panel/);
   assert.match(css, /\.transaction-evidence-card/);
   assert.match(css, /\.detail-amount-block/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v17/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v18/);
 });
