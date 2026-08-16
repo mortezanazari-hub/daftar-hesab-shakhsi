@@ -513,3 +513,44 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-width: 92px;
   scroll-snap-align: start;
 }
+
+/* v13 — iPhone Safari zoom and horizontal-scroll stability */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+body {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-x: none;
+}
+
+.app-shell {
+  max-width: min(560px, 100vw);
+  overscroll-behavior-x: none;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+.quick-scroll,
+.people-scroll {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .app-shell input,
+  .app-shell select,
+  .app-shell textarea {
+    font-size: 16px !important;
+  }
+}
