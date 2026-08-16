@@ -20,6 +20,21 @@ jobs:
       - name: Apply v19 changes
         run: python .v19_apply.py
 
+      - name: Normalize appended regression test newlines
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/rendered-html.test.mjs")
+          text = p.read_text(encoding="utf-8")
+          marker = r'\n\ntest("uses browser history so the phone Back button moves one screen back before leaving the app"'
+          idx = text.find(marker)
+          if idx < 0:
+              raise SystemExit("Back navigation test marker not found")
+          text = text[:idx] + text[idx:].replace(r"\n", "\n")
+          p.write_text(text, encoding="utf-8")
+          PY
+
       - name: Verify browser history wiring
         run: |
           grep -F 'window.history.pushState' app/FinanceApp.tsx
