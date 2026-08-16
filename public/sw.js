@@ -1,4 +1,4 @@
-const CACHE = "daftar-hesab-offline-v13";
+const CACHE = "daftar-hesab-offline-v14";
 const ROOT = new URL("./", self.registration.scope).pathname;
 const APP_SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icon-192.png`, `${ROOT}icon-512.png`];
 

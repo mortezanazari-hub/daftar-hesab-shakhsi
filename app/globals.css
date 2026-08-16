@@ -679,3 +679,135 @@ textarea {
   .transaction-detail-grid { grid-template-columns: 1fr; }
   .transaction-detail-share { grid-template-columns: 1fr; }
 }
+
+
+/* v16 — mobile ledger/group regression fixes + full PDF report export */
+.group-card-head > .group-title-button {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: inherit;
+  font-weight: inherit;
+  box-shadow: none;
+}
+.group-card.collapsed {
+  padding: 14px 16px;
+}
+.group-card.collapsed .group-card-head {
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+}
+.group-card.collapsed .group-title-button {
+  min-width: 0;
+  min-height: 48px;
+  flex: 1 1 auto;
+}
+.group-card.collapsed .group-title-button > div {
+  min-width: 0;
+}
+.group-card.collapsed .group-title-button h3,
+.group-card.collapsed .group-title-button p {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-card.collapsed .group-head-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.group-card.collapsed .group-collapse-toggle {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.ledger-item {
+  grid-template-columns: 32px minmax(0, 1fr) minmax(72px, auto) 27px;
+  align-items: center;
+}
+.ledger-item > .ledger-item-open {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  text-align: right;
+  overflow: hidden;
+}
+.ledger-item > .ledger-item-open strong {
+  width: 100%;
+  font-size: 9px;
+  line-height: 1.65;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ledger-item > .ledger-item-open small {
+  width: 100%;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ledger-item > b {
+  max-width: 112px;
+  line-height: 1.6;
+  text-align: left;
+  direction: ltr;
+  white-space: normal;
+}
+
+.pdf-report-button,
+.group-pdf-button {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #b9cfc3;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--green);
+  background: #edf5f0;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.pdf-report-button {
+  margin: 0 0 12px;
+}
+.group-pdf-button {
+  margin: 0;
+}
+
+@media (max-width: 390px) {
+  .group-card.collapsed .group-card-head {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .group-card.collapsed .group-head-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+  .ledger-item {
+    grid-template-columns: 30px minmax(0, 1fr) minmax(66px, 92px) 25px;
+    gap: 6px;
+  }
+  .ledger-item > b {
+    max-width: 92px;
+    font-size: 7px;
+  }
+}
