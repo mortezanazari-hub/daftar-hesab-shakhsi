@@ -10,6 +10,22 @@ const CONTENT_WIDTH = PAGE_RIGHT - PAGE_LEFT;
 const PDF_WIDTH = 595.28;
 const PDF_HEIGHT = 841.89;
 
+// v17 — softer receipt-style PDF presentation
+const COLORS = {
+  paper: "#faf8f2",
+  surface: "#fffefb",
+  ink: "#1e2a25",
+  muted: "#7c817d",
+  green: "#315d4c",
+  greenSoft: "#e8f1ec",
+  coral: "#a95b4b",
+  coralSoft: "#f6e6e1",
+  sand: "#f1ece2",
+  line: "#e8e2d8",
+  lineStrong: "#d9d1c5",
+};
+
+const FONT = "'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
 const money = (value: number) => `${faNumber.format(Math.round(value))} تومان`;
 const signedMoney = (value: number) => `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`;
 const reportDate = () => persianDate(new Date().toISOString().slice(0, 10), true);
@@ -57,6 +73,14 @@ function drawLines(ctx: CanvasRenderingContext2D, lines: string[], x: number, y:
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * lineHeight));
 }
 
+type Tone = "positive" | "negative" | "neutral";
+
+function toneColors(tone: Tone) {
+  if (tone === "positive") return { main: COLORS.green, soft: COLORS.greenSoft };
+  if (tone === "negative") return { main: COLORS.coral, soft: COLORS.coralSoft };
+  return { main: COLORS.ink, soft: COLORS.sand };
+}
+
 class ReportPainter {
   readonly pages: HTMLCanvasElement[] = [];
   private ctx!: CanvasRenderingContext2D;
@@ -76,167 +100,255 @@ class ReportPainter {
     this.pages.push(canvas);
     this.ctx = ctx;
     this.pageNumber += 1;
+
     ctx.direction = "rtl";
     ctx.textAlign = "right";
     ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "#f5f2ea";
+    ctx.fillStyle = COLORS.paper;
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    ctx.fillStyle = "#315d4c";
-    ctx.font = "800 28px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    ctx.fillText("دفتر حساب شخصی", PAGE_RIGHT, 72);
-    ctx.fillStyle = "#1d2a25";
-    ctx.font = "800 36px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    ctx.fillText(this.title, PAGE_RIGHT, 122);
+
+    roundedRect(ctx, PAGE_RIGHT - 190, 54, 190, 38, 19);
+    ctx.fillStyle = COLORS.greenSoft;
+    ctx.fill();
+    ctx.fillStyle = COLORS.green;
+    ctx.font = `800 18px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.fillText("دفتر حساب شخصی", PAGE_RIGHT - 95, 80);
+
     ctx.textAlign = "left";
-    ctx.fillStyle = "#8a867f";
-    ctx.font = "600 20px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    ctx.fillText(`صفحه ${faNumber.format(this.pageNumber)}`, PAGE_LEFT, 118);
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = `600 17px ${FONT}`;
+    ctx.fillText(`صفحه ${faNumber.format(this.pageNumber)}`, PAGE_LEFT, 78);
     ctx.textAlign = "right";
-    ctx.strokeStyle = "#ddd7cc";
-    ctx.lineWidth = 2;
+
+    ctx.fillStyle = COLORS.ink;
+    ctx.font = `900 38px ${FONT}`;
+    ctx.fillText(this.title, PAGE_RIGHT, 136);
+
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = `600 18px ${FONT}`;
+    ctx.fillText("گزارش شخصی • تولیدشده روی دستگاه", PAGE_RIGHT, 174);
+
+    ctx.strokeStyle = COLORS.line;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(PAGE_LEFT, 150);
-    ctx.lineTo(PAGE_RIGHT, 150);
+    ctx.moveTo(PAGE_LEFT, 202);
+    ctx.lineTo(PAGE_RIGHT, 202);
     ctx.stroke();
-    this.y = 190;
+
+    this.y = 238;
   }
 
   private ensure(height: number) {
-    if (this.y + height > PAGE_HEIGHT - 120) this.newPage();
+    if (this.y + height > PAGE_HEIGHT - 112) this.newPage();
   }
 
-  hero(label: string, value: string, tone: "positive" | "negative" | "neutral" = "neutral") {
+  hero(label: string, value: string, tone: Tone = "neutral") {
     this.ensure(190);
-    roundedRect(this.ctx, PAGE_LEFT, this.y, CONTENT_WIDTH, 160, 30);
-    this.ctx.fillStyle = tone === "positive" ? "#dce9e2" : tone === "negative" ? "#f4ded8" : "#ffffff";
+    const colors = toneColors(tone);
+    const h = 154;
+
+    roundedRect(this.ctx, PAGE_LEFT, this.y, CONTENT_WIDTH, h, 28);
+    this.ctx.fillStyle = COLORS.surface;
     this.ctx.fill();
-    this.ctx.fillStyle = "#777d78";
-    this.ctx.font = "700 22px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(label, PAGE_RIGHT - 36, this.y + 50);
-    this.ctx.fillStyle = tone === "positive" ? "#315d4c" : tone === "negative" ? "#9b4f40" : "#1d2a25";
-    this.ctx.font = "900 48px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(value, PAGE_RIGHT - 36, this.y + 112);
-    this.y += 184;
+    this.ctx.strokeStyle = COLORS.line;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.stroke();
+
+    roundedRect(this.ctx, PAGE_RIGHT - 178, this.y + 24, 148, 34, 17);
+    this.ctx.fillStyle = colors.soft;
+    this.ctx.fill();
+    this.ctx.fillStyle = colors.main;
+    this.ctx.textAlign = "center";
+    this.ctx.font = `800 17px ${FONT}`;
+    this.ctx.fillText(label, PAGE_RIGHT - 104, this.y + 47);
+    this.ctx.textAlign = "right";
+
+    this.ctx.fillStyle = colors.main;
+    this.ctx.font = `900 43px ${FONT}`;
+    this.ctx.fillText(value, PAGE_RIGHT - 30, this.y + 112);
+
+    this.ctx.fillStyle = COLORS.muted;
+    this.ctx.font = `600 16px ${FONT}`;
+    this.ctx.fillText("وضعیت فعلی بر اساس اطلاعات ثبت‌شده", PAGE_RIGHT - 30, this.y + 137);
+
+    this.y += h + 26;
   }
 
-  stats(items: Array<{ label: string; value: string; tone?: "positive" | "negative" | "neutral" }>) {
-    const gap = 16;
+  stats(items: Array<{ label: string; value: string; tone?: Tone }>) {
+    const gap = 14;
     const cardWidth = (CONTENT_WIDTH - gap) / 2;
     const rows = Math.ceil(items.length / 2);
-    this.ensure(rows * 108 + 20);
+    this.ensure(rows * 96 + 16);
+
     items.forEach((item, index) => {
       const column = index % 2;
       const row = Math.floor(index / 2);
       const x = column === 0 ? PAGE_RIGHT - cardWidth : PAGE_LEFT;
-      const y = this.y + row * 108;
-      roundedRect(this.ctx, x, y, cardWidth, 92, 20);
-      this.ctx.fillStyle = "#fffdf8";
+      const y = this.y + row * 96;
+      const colors = toneColors(item.tone ?? "neutral");
+
+      roundedRect(this.ctx, x, y, cardWidth, 82, 18);
+      this.ctx.fillStyle = COLORS.surface;
       this.ctx.fill();
-      this.ctx.strokeStyle = "#e3ddd2";
-      this.ctx.lineWidth = 2;
-      this.ctx.stroke();
-      this.ctx.fillStyle = "#8a867f";
-      this.ctx.font = "600 19px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-      this.ctx.fillText(item.label, x + cardWidth - 24, y + 34);
-      this.ctx.fillStyle = item.tone === "positive" ? "#315d4c" : item.tone === "negative" ? "#b85d4a" : "#1d2a25";
-      this.ctx.font = "800 24px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-      this.ctx.fillText(item.value, x + cardWidth - 24, y + 70);
+
+      this.ctx.fillStyle = colors.soft;
+      roundedRect(this.ctx, x + cardWidth - 18, y + 18, 6, 46, 3);
+      this.ctx.fill();
+
+      this.ctx.fillStyle = COLORS.muted;
+      this.ctx.font = `600 16px ${FONT}`;
+      this.ctx.fillText(item.label, x + cardWidth - 32, y + 31);
+
+      this.ctx.fillStyle = colors.main;
+      this.ctx.font = `800 22px ${FONT}`;
+      this.ctx.fillText(item.value, x + cardWidth - 32, y + 61);
     });
-    this.y += rows * 108 + 12;
+
+    this.y += rows * 96 + 10;
   }
 
   section(title: string, caption = "") {
-    this.ensure(78);
-    this.ctx.fillStyle = "#1d2a25";
-    this.ctx.font = "900 28px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(title, PAGE_RIGHT, this.y + 36);
+    this.ensure(76);
+
+    this.ctx.fillStyle = COLORS.green;
+    roundedRect(this.ctx, PAGE_RIGHT - 9, this.y + 14, 6, 30, 3);
+    this.ctx.fill();
+
+    this.ctx.fillStyle = COLORS.ink;
+    this.ctx.font = `900 26px ${FONT}`;
+    this.ctx.fillText(title, PAGE_RIGHT - 22, this.y + 38);
+
     if (caption) {
       this.ctx.textAlign = "left";
-      this.ctx.fillStyle = "#8a867f";
-      this.ctx.font = "600 18px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-      this.ctx.fillText(caption, PAGE_LEFT, this.y + 34);
+      this.ctx.fillStyle = COLORS.muted;
+      this.ctx.font = `600 16px ${FONT}`;
+      this.ctx.fillText(caption, PAGE_LEFT, this.y + 36);
       this.ctx.textAlign = "right";
     }
-    this.y += 62;
+
+    this.ctx.strokeStyle = COLORS.line;
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(PAGE_LEFT, this.y + 58);
+    this.ctx.lineTo(PAGE_RIGHT, this.y + 58);
+    this.ctx.stroke();
+
+    this.y += 76;
   }
 
-  row(title: string, detail: string, value: string, tone: "positive" | "negative" | "neutral" = "neutral") {
-    this.ctx.font = "800 25px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    const titleLines = wrapLines(this.ctx, title, 700, 2);
-    this.ctx.font = "600 19px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    const detailLines = wrapLines(this.ctx, detail, 700, 3);
-    const height = 54 + titleLines.length * 34 + detailLines.length * 27;
-    this.ensure(height + 14);
+  row(title: string, detail: string, value: string, tone: Tone = "neutral") {
+    this.ctx.font = `800 23px ${FONT}`;
+    const titleLines = wrapLines(this.ctx, title, 660, 2);
+    this.ctx.font = `600 18px ${FONT}`;
+    const detailLines = wrapLines(this.ctx, detail, 660, 3);
+    const contentHeight = Math.max(74, 30 + titleLines.length * 31 + detailLines.length * 25);
+    const height = contentHeight + 24;
+    this.ensure(height + 8);
+
+    const colors = toneColors(tone);
+
     roundedRect(this.ctx, PAGE_LEFT, this.y, CONTENT_WIDTH, height, 20);
-    this.ctx.fillStyle = "#fffdf8";
+    this.ctx.fillStyle = COLORS.surface;
     this.ctx.fill();
-    this.ctx.strokeStyle = "#e5e0d5";
-    this.ctx.lineWidth = 2;
-    this.ctx.stroke();
-    this.ctx.fillStyle = "#1d2a25";
-    this.ctx.font = "800 25px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    drawLines(this.ctx, titleLines, PAGE_RIGHT - 26, this.y + 44, 34);
-    const detailY = this.y + 50 + titleLines.length * 34;
-    this.ctx.fillStyle = "#7d817c";
-    this.ctx.font = "600 19px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    drawLines(this.ctx, detailLines, PAGE_RIGHT - 26, detailY, 27);
+
+    this.ctx.fillStyle = colors.soft;
+    roundedRect(this.ctx, PAGE_RIGHT - 12, this.y + 20, 5, Math.max(44, height - 40), 3);
+    this.ctx.fill();
+
+    this.ctx.fillStyle = COLORS.ink;
+    this.ctx.font = `800 23px ${FONT}`;
+    drawLines(this.ctx, titleLines, PAGE_RIGHT - 30, this.y + 38, 31);
+
+    const detailY = this.y + 43 + titleLines.length * 31;
+    this.ctx.fillStyle = COLORS.muted;
+    this.ctx.font = `600 18px ${FONT}`;
+    drawLines(this.ctx, detailLines, PAGE_RIGHT - 30, detailY, 25);
+
     this.ctx.textAlign = "left";
-    this.ctx.fillStyle = tone === "positive" ? "#315d4c" : tone === "negative" ? "#b85d4a" : "#1d2a25";
-    this.ctx.font = "900 24px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(value, PAGE_LEFT + 26, this.y + 48);
+    this.ctx.font = `800 20px ${FONT}`;
+    const valueWidth = Math.min(300, Math.max(120, this.ctx.measureText(value).width + 38));
+    const pillX = PAGE_LEFT + 22;
+    const pillY = this.y + 22;
+    roundedRect(this.ctx, pillX, pillY, valueWidth, 42, 21);
+    this.ctx.fillStyle = colors.soft;
+    this.ctx.fill();
+    this.ctx.fillStyle = colors.main;
+    this.ctx.textAlign = "center";
+    this.ctx.fillText(value, pillX + valueWidth / 2, pillY + 28);
     this.ctx.textAlign = "right";
-    this.y += height + 14;
+
+    this.y += height + 10;
   }
 
   meta(label: string, value: string) {
-    this.ensure(58);
-    this.ctx.fillStyle = "#7f847f";
-    this.ctx.font = "600 18px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(label, PAGE_RIGHT - 48, this.y + 28);
+    this.ensure(56);
+
+    roundedRect(this.ctx, PAGE_LEFT + 28, this.y, CONTENT_WIDTH - 28, 46, 13);
+    this.ctx.fillStyle = "#f6f2ea";
+    this.ctx.fill();
+
+    this.ctx.fillStyle = COLORS.muted;
+    this.ctx.font = `600 16px ${FONT}`;
+    this.ctx.fillText(label, PAGE_RIGHT - 28, this.y + 29);
+
     this.ctx.textAlign = "left";
-    this.ctx.fillStyle = "#315d4c";
-    this.ctx.font = "800 19px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    this.ctx.fillText(value, PAGE_LEFT + 48, this.y + 28);
+    this.ctx.fillStyle = COLORS.ink;
+    this.ctx.font = `800 17px ${FONT}`;
+    this.ctx.fillText(value, PAGE_LEFT + 50, this.y + 29);
     this.ctx.textAlign = "right";
-    this.ctx.strokeStyle = "#e6e0d7";
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.ctx.moveTo(PAGE_LEFT + 36, this.y + 48);
-    this.ctx.lineTo(PAGE_RIGHT - 36, this.y + 48);
-    this.ctx.stroke();
-    this.y += 56;
+
+    this.y += 54;
   }
 
   note(text: string) {
-    this.ctx.font = "600 19px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-    const lines = wrapLines(this.ctx, text, CONTENT_WIDTH - 60, 5);
-    const height = 46 + lines.length * 28;
-    this.ensure(height + 12);
+    this.ctx.font = `600 18px ${FONT}`;
+    const lines = wrapLines(this.ctx, text, CONTENT_WIDTH - 74, 5);
+    const height = 42 + lines.length * 27;
+    this.ensure(height + 14);
+
     roundedRect(this.ctx, PAGE_LEFT, this.y, CONTENT_WIDTH, height, 18);
-    this.ctx.fillStyle = "#eee8db";
+    this.ctx.fillStyle = COLORS.sand;
     this.ctx.fill();
-    this.ctx.fillStyle = "#5f645f";
-    drawLines(this.ctx, lines, PAGE_RIGHT - 28, this.y + 42, 28);
-    this.y += height + 12;
+
+    this.ctx.fillStyle = COLORS.green;
+    roundedRect(this.ctx, PAGE_RIGHT - 14, this.y + 18, 5, height - 36, 3);
+    this.ctx.fill();
+
+    this.ctx.fillStyle = "#5e645f";
+    drawLines(this.ctx, lines, PAGE_RIGHT - 34, this.y + 38, 27);
+
+    this.y += height + 14;
   }
 
   finalize() {
     const date = reportDate();
-    for (const canvas of this.pages) {
+    this.pages.forEach((canvas, index) => {
       const ctx = canvas.getContext("2d");
-      if (!ctx) continue;
+      if (!ctx) return;
+
       ctx.direction = "rtl";
+      ctx.strokeStyle = COLORS.line;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PAGE_LEFT, PAGE_HEIGHT - 86);
+      ctx.lineTo(PAGE_RIGHT, PAGE_HEIGHT - 86);
+      ctx.stroke();
+
       ctx.textAlign = "right";
-      ctx.fillStyle = "#8d8982";
-      ctx.font = "500 17px 'Vazirmatn Variable', Vazirmatn, Tahoma, sans-serif";
-      ctx.fillText(`گزارش تولیدشده از داده‌های محلی برنامه • ${date}`, PAGE_RIGHT, PAGE_HEIGHT - 48);
-    }
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = `500 15px ${FONT}`;
+      ctx.fillText(`دفتر حساب شخصی • ${date}`, PAGE_RIGHT, PAGE_HEIGHT - 52);
+
+      ctx.textAlign = "left";
+      ctx.fillText(`${faNumber.format(index + 1)} / ${faNumber.format(this.pages.length)}`, PAGE_LEFT, PAGE_HEIGHT - 52);
+    });
     return this.pages;
   }
 }
 
 async function canvasJpeg(canvas: HTMLCanvasElement) {
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ساخت تصویر صفحه PDF انجام نشد.")), "image/jpeg", 0.92));
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ساخت تصویر صفحه PDF انجام نشد.")), "image/jpeg", 0.93));
   return new Uint8Array(await blob.arrayBuffer());
 }
 
