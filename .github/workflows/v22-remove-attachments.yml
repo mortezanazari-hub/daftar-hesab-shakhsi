@@ -1,0 +1,50 @@
+name: Validate attachment removal
+
+on:
+  push:
+    branches:
+      - agent/remove-attachments-v22
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/remove-attachments-v22
+          fetch-depth: 0
+
+      - name: Apply v22 attachment removal
+        run: python .v22_apply.py
+
+      - name: Verify removal wiring
+        run: |
+          grep -F 'operation: "remove_attachment"' app/FinanceApp.tsx
+          grep -F 'name="removeReceipt"' app/FinanceApp.tsx
+          grep -F 'operation === "remove_attachment"' app/local-db.ts
+          grep -F 'daftar-hesab-offline-v19' public/sw.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - name: Production build
+        run: npm run static:build
+      - name: Regression tests
+        run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
+
+      - name: Commit validated product files
+        shell: bash
+        run: |
+          rm .v22_apply.py .github/workflows/v22-remove-attachments.yml
+          git config user.name "Morteza Nazari"
+          git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
+          git add -u .v22_apply.py .github/workflows/v22-remove-attachments.yml || true
+          git add app/FinanceApp.tsx app/local-db.ts app/globals.css public/sw.js tests/rendered-html.test.mjs
+          git commit -m "Allow removing transaction attachments"
+          git push origin HEAD:agent/remove-attachments-v22
