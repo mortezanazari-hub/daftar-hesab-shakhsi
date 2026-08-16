@@ -171,6 +171,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /واگذار کردم/);
   assert.match(app, /دارنده فعلی/);
   assert.match(app, /جزئیات و مسیر چک/);
+  assert.match(app, /برگردان به جریان/);
   assert.match(app, /چک رو به کی دادم/);
   assert.match(app, /این چک تا وقتی پاس شود از لیست پیگیری حذف نمی‌شود/);
   assert.match(app, /شناسه صیاد <small>\(اختیاری/);
