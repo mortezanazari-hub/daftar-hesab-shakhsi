@@ -1,6 +1,7 @@
 export type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
+export type ReceiptAttachment = { fileName: string; mimeType: string; size: number; dataUrl: string };
 export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
-export type LoanPayment = { id: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string };
+export type LoanPayment = { id: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
 export type LoanInstallment = { id: number; loanId: number; number: number; dueDate: string; amount: number; paidAmount: number; remainingAmount: number; status: "open" | "partial" | "paid"; overdue: boolean; payments: LoanPayment[] };
 export type Loan = { id: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; financedAmount: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string; installments: LoanInstallment[]; totalPaid: number; remainingAmount: number; paidCount: number; overdueCount: number; paymentCount: number; financeCost: number; nextInstallment: LoanInstallment | null };
 export type CheckDirection = "issued" | "received";
@@ -11,10 +12,10 @@ export type CheckEvent = { id: number; checkId: number; type: CheckEventType; ev
 export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName: string; events: CheckEvent[]; overdue: boolean; financialOpen: boolean };
 export type GroupMember = { personId: number; name: string; shareWeight: number };
 export type ExpenseShare = { personId: number; name: string; amount: number; weight: number };
-export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[] };
+export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[]; receipt: ReceiptAttachment | null };
 export type Balance = { personId: number; name: string; paid: number; owed: number; balance: number };
 export type SettlementSuggestion = { fromPersonId: number; fromName: string; toPersonId: number; toName: string; amount: number };
-export type GroupSettlement = { id: number; groupId: number; fromPersonId: number; fromName: string; toPersonId: number; toName: string; amount: number; settlementDate: string; note: string; createdAt: string };
+export type GroupSettlement = { id: number; groupId: number; fromPersonId: number; fromName: string; toPersonId: number; toName: string; amount: number; settlementDate: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
 export type Group = { id: number; name: string; members: GroupMember[]; expenses: Expense[]; totalSpent: number; balances: Balance[]; suggestions: SettlementSuggestion[]; settlements: GroupSettlement[] };
 export type PersonLedgerItem = {
   id: string;
@@ -57,12 +58,12 @@ type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
 type StoredEntry = Omit<Entry, "id" | "personName"> & { id?: number };
 type StoredGroup = { id?: number; name: string; createdAt: string };
 type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
-type StoredExpense = Omit<Expense, "id" | "payerName" | "shares"> & { id?: number; groupId: number; createdAt: string };
+type StoredExpense = Omit<Expense, "id" | "payerName" | "shares" | "receipt"> & { id?: number; groupId: number; createdAt: string; receipt?: ReceiptAttachment | null };
 type StoredShare = { id?: number; expenseId: number; personId: number; amount: number; weight?: number };
-type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string };
+type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string; receipt?: ReceiptAttachment | null };
 type StoredLoan = { id?: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string };
 type StoredLoanInstallment = { id?: number; loanId: number; number: number; dueDate: string; amount: number };
-type StoredLoanPayment = { id?: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string };
+type StoredLoanPayment = { id?: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string; receipt?: ReceiptAttachment | null };
 type StoredCheck = { id?: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName?: string };
 type StoredCheckEvent = { id?: number; checkId: number; type: CheckEventType; eventDate: string; fromName: string; toName: string; note: string; createdAt: string };
 
@@ -151,6 +152,19 @@ function optionalPositiveInteger(value: unknown) {
   if (!normalized) return null;
   const parsed = Math.round(Number(normalized));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function cleanReceipt(value: unknown): ReceiptAttachment | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const dataUrl = String(raw.dataUrl ?? "");
+  const mimeType = cleanText(raw.mimeType, 80);
+  const fileName = cleanText(raw.fileName, 140) || "receipt";
+  const size = Math.max(0, Math.round(Number(raw.size) || 0));
+  const allowedMime = mimeType.startsWith("image/") || mimeType === "application/pdf";
+  if (!allowedMime || !dataUrl.startsWith(`data:${mimeType};base64,`)) throw new Error("فرمت رسید باید تصویر یا PDF باشد.");
+  if (size > 5_000_000 || dataUrl.length > 7_000_000) throw new Error("حجم رسید باید کمتر از ۵ مگابایت باشد.");
+  return { fileName, mimeType, size, dataUrl };
 }
 
 function checkFinancialOpen(status: CheckStatus) {
@@ -384,6 +398,7 @@ export async function getFinanceData(): Promise<FinanceData> {
           title: expense.title,
           amount: expense.amount,
           expenseDate: expense.expenseDate,
+          receipt: expense.receipt ?? null,
           shares: shares
             .filter((share) => share.expenseId === expense.id)
             .map((share) => ({ personId: share.personId, name: names.get(share.personId) ?? "نامشخص", amount: share.amount, weight: share.weight ?? (share.amount > 0 ? 1 : 0) })),
@@ -402,6 +417,7 @@ export async function getFinanceData(): Promise<FinanceData> {
           settlementDate: settlement.settlementDate,
           note: settlement.note,
           createdAt: settlement.createdAt,
+          receipt: settlement.receipt ?? null,
         }))
         .sort((a, b) => b.settlementDate.localeCompare(a.settlementDate) || b.id - a.id);
       const balances = storedGroupMembers.map((member) => {
@@ -421,7 +437,7 @@ export async function getFinanceData(): Promise<FinanceData> {
       .map((installment) => {
         const payments = loanPayments
           .filter((payment) => payment.installmentId === installment.id)
-          .map((payment) => ({ ...payment }))
+          .map((payment) => ({ ...payment, receipt: payment.receipt ?? null }))
           .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate) || b.id - a.id);
         const paidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
         const remainingAmount = Math.max(0, installment.amount - paidAmount);
@@ -608,7 +624,7 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     if (remaining === 0) throw new Error("این قسط قبلاً کامل پرداخت شده است.");
     if (amount > remaining) throw new Error(`مبلغ پرداخت نمی‌تواند بیشتر از مانده این قسط (${remaining.toLocaleString("fa-IR")} تومان) باشد.`);
     const transaction = db.transaction("loanPayments", "readwrite");
-    transaction.objectStore("loanPayments").add({ loanId, installmentId, amount, paymentDate: cleanIsoDate(payload.paymentDate, "تاریخ پرداخت"), note: cleanText(payload.note, 300), createdAt: new Date().toISOString() } satisfies StoredLoanPayment);
+    transaction.objectStore("loanPayments").add({ loanId, installmentId, amount, paymentDate: cleanIsoDate(payload.paymentDate, "تاریخ پرداخت"), note: cleanText(payload.note, 300), createdAt: new Date().toISOString(), receipt: cleanReceipt(payload.receipt) } satisfies StoredLoanPayment);
     await transactionDone(transaction);
     return;
   }
@@ -843,17 +859,20 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const id = operation === "update_expense" ? positiveInteger(payload.id, "شناسه خرید") : null;
     let groupId = positiveInteger(payload.groupId, "گروه");
     let createdAt = new Date().toISOString();
+    let existingReceipt: ReceiptAttachment | null = null;
     if (id) {
       const currentExpenses = await all<StoredExpense & { id: number }>(db, "expenses");
       const current = currentExpenses.find((expense) => expense.id === id);
       if (!current) throw new Error("خرید موردنظر پیدا نشد.");
       groupId = current.groupId;
       createdAt = current.createdAt;
+      existingReceipt = current.receipt ?? null;
     }
     const payerPersonId = positiveInteger(payload.payerPersonId, "پرداخت‌کننده");
     const amount = positiveInteger(payload.amount, "مبلغ");
     const title = cleanText(payload.title, 100);
     if (!title) throw new Error("عنوان خرید را وارد کنید.");
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : existingReceipt;
     const activeMembers = await getGroupMembers(db, groupId);
     const oldShares = id ? (await all<StoredShare & { id: number }>(db, "shares")).filter((share) => share.expenseId === id) : [];
     const historicalIds = new Set(oldShares.map((share) => share.personId));
@@ -868,10 +887,10 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     let expenseId: number;
     if (id) {
       expenseId = id;
-      expenseStore.put({ id, groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt } satisfies StoredExpense & { id: number });
+      expenseStore.put({ id, groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense & { id: number });
       for (const share of oldShares) shareStore.delete(share.id);
     } else {
-      expenseId = Number(await requestResult(expenseStore.add({ groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt } satisfies StoredExpense)));
+      expenseId = Number(await requestResult(expenseStore.add({ groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense)));
     }
     for (const share of allocations) shareStore.add({ expenseId, personId: share.personId, amount: share.amount, weight: share.weight } satisfies StoredShare);
     await transactionDone(transaction);
@@ -898,7 +917,7 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const memberIds = new Set(members.map((member) => member.personId));
     if (!memberIds.has(fromPersonId) || !memberIds.has(toPersonId)) throw new Error("هر دو طرف تسویه باید عضو این گروه باشند.");
     const transaction = db.transaction("settlements", "readwrite");
-    transaction.objectStore("settlements").add({ groupId, fromPersonId, toPersonId, amount, settlementDate: cleanText(payload.settlementDate, 10) || new Date().toISOString().slice(0, 10), note: cleanText(payload.note, 300), createdAt: new Date().toISOString() } satisfies StoredSettlement);
+    transaction.objectStore("settlements").add({ groupId, fromPersonId, toPersonId, amount, settlementDate: cleanText(payload.settlementDate, 10) || new Date().toISOString().slice(0, 10), note: cleanText(payload.note, 300), createdAt: new Date().toISOString(), receipt: cleanReceipt(payload.receipt) } satisfies StoredSettlement);
     await transactionDone(transaction);
     return;
   }

@@ -554,3 +554,24 @@ textarea {
     font-size: 16px !important;
   }
 }
+
+
+/* v14 — overdue due filter, visible settlement history and local receipts */
+.due-range-filter { overflow-x: auto; scrollbar-width: none; }
+.due-range-filter::-webkit-scrollbar { display: none; }
+.due-range-filter .overdue-filter.active { border-color: #d9a89c; color: var(--coral); background: var(--coral-soft); }
+.receipt-field { margin-bottom: 12px; padding: 10px 11px; border: 1px dashed #cfc8bb; border-radius: 13px; background: #faf8f2; }
+.receipt-field > span { display: block; margin-bottom: 7px; font-size: 8px; font-weight: 900; }
+.receipt-field input[type="file"] { width: 100%; min-height: 38px; padding: 7px; border: 1px solid #ddd7cc; border-radius: 10px; background: var(--surface); }
+.receipt-field > small { display: block; margin-top: 6px; color: var(--muted); font-size: 6.5px; line-height: 1.7; }
+.receipt-row-actions { display: inline-flex; align-items: center; gap: 5px; }
+.receipt-share { min-height: 27px; border: 0; border-radius: 8px; padding: 5px 7px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--green); background: var(--green-soft); font-size: 6.5px; font-weight: 900; cursor: pointer; white-space: nowrap; }
+.receipt-share.icon-only { width: 28px; min-width: 28px; padding: 0; }
+.settlement-history[open] { border-color: #d9e3dc; background: #fbfdfb; }
+.settlement-history article { grid-template-columns: 30px minmax(0,1fr) auto auto; }
+@media (max-width: 390px) {
+  .due-range-filter button { flex: 0 0 88px; }
+  .settlement-history article { grid-template-columns: 28px minmax(0,1fr) auto; }
+  .settlement-history article > b { grid-column: 2; }
+  .settlement-history .receipt-row-actions { grid-column: 3; grid-row: 1 / span 2; }
+}
