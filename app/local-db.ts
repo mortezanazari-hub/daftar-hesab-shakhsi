@@ -538,13 +538,14 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const title = cleanText(payload.title, 100) || ({ debt: "بدهی", receivable: "طلب", installment: "قسط", check: "چک" }[kind] ?? "ثبت مالی");
     const id = operation === "update_entry" ? positiveInteger(payload.id, "شناسه") : null;
     const receipt = payload.receipt ? cleanReceipt(payload.receipt) : null;
+    const removeReceipt = payload.removeReceipt === true || String(payload.removeReceipt) === "1";
     const transaction = db.transaction("entries", "readwrite");
     const store = transaction.objectStore("entries");
     if (id) {
       const current = await requestResult(store.get(id)) as StoredEntry | undefined;
       if (!current) throw new Error("ثبت موردنظر پیدا نشد.");
       if (current.role === "settlement" || current.settlesEntryId) throw new Error("تراکنش تسویه از صفحه تراکنش اصلی مدیریت می‌شود و قابل تبدیل به بدهی/طلب نیست.");
-      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400), receipt: receipt ?? current.receipt ?? null, role: "obligation", settlesEntryId: null, transactionDate: current.transactionDate ?? null });
+      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400), receipt: receipt ?? (removeReceipt ? null : current.receipt ?? null), role: "obligation", settlesEntryId: null, transactionDate: current.transactionDate ?? null });
     } else {
       store.add({ personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, status: "open", note: cleanText(payload.note, 400), createdAt: new Date().toISOString(), receipt, role: "obligation", settlesEntryId: null, transactionDate: null } satisfies StoredEntry);
     }
@@ -756,7 +757,8 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const currentChecks = await all<StoredCheck & { id: number }>(db, "checks");
     if (sayadId && currentChecks.some((check) => check.sayadId === sayadId && check.id !== id)) throw new Error("این شناسه صیادی قبلاً در دفتر چک ثبت شده است.");
     const currentCheck = id ? currentChecks.find((check) => check.id === id) : undefined;
-    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : currentCheck?.receipt ?? null;
+    const removeReceipt = payload.removeReceipt === true || String(payload.removeReceipt) === "1";
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : removeReceipt ? null : currentCheck?.receipt ?? null;
     const record = {
       direction, checkType, amount, issueDate, dueDate, purpose, sayadId,
       chequeNumber: cleanText(payload.chequeNumber, 50), bankName, branchName: cleanText(payload.branchName, 80),
@@ -848,6 +850,25 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
     transaction.objectStore("checks").delete(id);
     for (const event of events.filter((item) => item.checkId === id)) transaction.objectStore("checkEvents").delete(event.id);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "remove_attachment") {
+    const targetKind = cleanText(payload.targetKind, 30);
+    const id = positiveInteger(payload.id, "شناسه تراکنش");
+    const storeName = targetKind === "entry" ? "entries"
+      : targetKind === "check" ? "checks"
+      : targetKind === "expense" ? "expenses"
+      : targetKind === "settlement" ? "settlements"
+      : targetKind === "loan-payment" ? "loanPayments"
+      : null;
+    if (!storeName) throw new Error("این نوع تراکنش پیوست مستقلی برای حذف ندارد.");
+    const transaction = db.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const current = await requestResult(store.get(id)) as (Record<string, unknown> & { id: number }) | undefined;
+    if (!current) throw new Error("تراکنش موردنظر پیدا نشد.");
+    store.put({ ...current, id, receipt: null });
     await transactionDone(transaction);
     return;
   }
@@ -965,7 +986,8 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const amount = positiveInteger(payload.amount, "مبلغ");
     const title = cleanText(payload.title, 100);
     if (!title) throw new Error("عنوان خرید را وارد کنید.");
-    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : existingReceipt;
+    const removeReceipt = payload.removeReceipt === true || String(payload.removeReceipt) === "1";
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : removeReceipt ? null : existingReceipt;
     const activeMembers = await getGroupMembers(db, groupId);
     const oldShares = id ? (await all<StoredShare & { id: number }>(db, "shares")).filter((share) => share.expenseId === id) : [];
     const historicalIds = new Set(oldShares.map((share) => share.personId));

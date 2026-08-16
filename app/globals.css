@@ -924,3 +924,16 @@ textarea {
 .evidence-actions { display: flex; justify-content: flex-end; padding: 9px 11px 11px; border-top: 1px solid #f0ece5; background: #fff; }
 .evidence-actions button { min-height: 34px; padding: 7px 10px; border: 1px solid #dce5df; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #f5f9f6; color: var(--green); font: inherit; font-size: 7px; font-weight: 900; cursor: pointer; }
 .evidence-preview span { pointer-events: none; }
+
+
+/* v22 — explicit attachment removal in edit/detail views */
+.attachment-edit-current { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 11px; border:1px solid #e7e1d8; border-radius:13px; background:#fff; }
+.attachment-edit-current > div { min-width:0; display:flex; align-items:center; gap:8px; }
+.attachment-edit-current > div > span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.attachment-edit-current strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
+.attachment-edit-current small { color:var(--muted); font-size:6.5px; }
+.attachment-edit-current button { flex:0 0 auto; min-height:34px; padding:6px 9px; border-radius:10px; font-size:7px; }
+.attachment-edit-current.pending-removal { border-color:#edd4ce; background:#fff8f6; opacity:.82; }
+.attachment-edit-current button.undo { color:var(--green); background:var(--green-soft); border:1px solid #d7e5dc; }
+.evidence-actions { display:flex; gap:8px; }
+.evidence-actions > button { flex:1 1 0; }
