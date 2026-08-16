@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v10/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v11/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -264,4 +264,20 @@ test("shows every quick action in a horizontally scrollable home strip", async (
   assert.match(css, /\.quick-scroll \{/);
   assert.match(css, /overflow-x: auto/);
   assert.match(css, /flex: 0 0 92px/);
+});
+
+test("prevents iPhone form auto-zoom and page-wide horizontal drift", async () => {
+  const [layout, css] = await Promise.all([
+    readFile(new URL("app/layout.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(layout, /width:\s*"device-width"/);
+  assert.match(layout, /initialScale:\s*1/);
+  assert.match(layout, /viewportFit:\s*"cover"/);
+  assert.match(css, /v13 — iPhone Safari zoom and horizontal-scroll stability/);
+  assert.match(css, /overflow-x:\s*clip/);
+  assert.match(css, /overscroll-behavior-x:\s*none/);
+  assert.match(css, /touch-action:\s*manipulation/);
+  assert.match(css, /@supports \(-webkit-touch-callout: none\)/);
+  assert.match(css, /font-size:\s*16px !important/);
 });
