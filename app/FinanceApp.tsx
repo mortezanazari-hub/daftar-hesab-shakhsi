@@ -1183,14 +1183,33 @@ function DetailRows({ rows }: { rows: Array<[string, string]> }) {
 }
 
 function TransactionDetailShell({ category, title, amount, tone, date, status, receipt, attachment, onClose, children, actions }: { category: string; title: string; amount: number; tone: "positive" | "negative" | "neutral"; date: string; status: string; receipt: TransactionReceiptData; attachment?: ReceiptAttachment | null; onClose: () => void; children: ReactNode; actions?: ReactNode }) {
+  const imageAttachment = attachment?.mimeType.startsWith("image/") ? attachment : null;
   return <div className="transaction-detail-page">
     <div className="transaction-detail-nav"><button onClick={onClose}>‹ برگشت</button><span>جزئیات تراکنش</span></div>
-    <section className={`transaction-detail-hero ${tone}`}><small>{category}</small><h2>{title}</h2><strong>{money(amount)}</strong><div><span>{date}</span><b>{status}</b></div></section>
-    <div className="transaction-detail-share"><button className="primary" onClick={() => void shareTransactionReceipt(receipt)}><Icon name="upload" size={16} /> ارسال رسید این تراکنش</button>{attachment && <button onClick={() => void shareAttachment(attachment, `پیوست ${title}`)}><Icon name="receipt" size={16} /> ارسال پیوست</button>}</div>
-    {attachment && <div className="attachment-summary"><Icon name="receipt" size={16} /><div><strong>پیوست ذخیره‌شده</strong><small>{attachment.fileName} • {number.format(Math.max(1, Math.round(attachment.size / 1024)))} کیلوبایت</small></div></div>}
-    {children}
-    {actions && <div className="transaction-detail-actions">{actions}</div>}
-    <p className="generated-receipt-hint">«ارسال رسید» یک تصویر مرتب از اطلاعات همین تراکنش می‌سازد. پیوست، مدرک جداگانه‌ای است که خودت قبلاً اضافه کرده‌ای.</p>
+
+    <section className={`transaction-detail-hero polished ${tone}`}>
+      <div className="detail-hero-heading">
+        <span className="detail-hero-icon"><Icon name="receipt" size={20} /></span>
+        <div><small>{category}</small><h2>{title}</h2></div>
+        <b className="detail-status-pill">{status}</b>
+      </div>
+      <div className="detail-amount-block"><small>مبلغ تراکنش</small><strong>{money(amount)}</strong></div>
+      <div className="detail-hero-meta"><span><small>تاریخ</small><strong>{date}</strong></span><span><small>شماره مرجع</small><strong>{receipt.reference}</strong></span></div>
+    </section>
+
+    <section className="transaction-receipt-panel">
+      <div><span className="receipt-panel-icon"><Icon name="upload" size={18} /></span><div><strong>رسید کامل این تراکنش</strong><small>{attachment ? "رسید برنامه + مدرک پیوست‌شده با هم ارسال می‌شوند" : "یک رسید تصویری مرتب از همین جزئیات ساخته می‌شود"}</small></div></div>
+      <button className="primary" onClick={() => void shareTransactionReceipt(receipt, attachment)}><Icon name="upload" size={16} /> ارسال رسید کامل</button>
+    </section>
+
+    {attachment && <section className="transaction-evidence-card">
+      <div className="evidence-head"><div><span><Icon name="receipt" size={16} /></span><div><strong>مدرک پیوست‌شده</strong><small>{attachment.fileName} • {number.format(Math.max(1, Math.round(attachment.size / 1024)))} کیلوبایت</small></div></div><b>{imageAttachment ? "تصویر" : "PDF"}</b></div>
+      {imageAttachment ? <button className="evidence-preview" onClick={() => void shareAttachment(attachment, `پیوست ${title}`)} aria-label="نمایش و ارسال مدرک پیوست‌شده"><img src={imageAttachment.dataUrl} alt={`مدرک پیوست‌شده برای ${title}`} /><span>لمس برای ارسال فایل اصلی</span></button> : <button className="evidence-file" onClick={() => void shareAttachment(attachment, `پیوست ${title}`)}><span className="pdf-badge">PDF</span><span><strong>{attachment.fileName}</strong><small>فایل اصلی همراه رسید کامل نیز ارسال می‌شود</small></span><b>ارسال فایل ‹</b></button>}
+    </section>}
+
+    <div className="transaction-detail-content">{children}</div>
+    {actions && <section className="transaction-detail-actions-wrap"><div className="detail-section-heading"><span>مدیریت تراکنش</span></div><div className="transaction-detail-actions">{actions}</div></section>}
+    <p className="generated-receipt-hint">رسید کامل، اطلاعات همین صفحه را به‌صورت تصویر مرتب تولید می‌کند. اگر مدرکی پیوست شده باشد، فایل اصلی آن هم همراه رسید ارسال می‌شود.</p>
   </div>;
 }
 

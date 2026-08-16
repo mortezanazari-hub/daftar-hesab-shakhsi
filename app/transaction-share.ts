@@ -29,10 +29,14 @@ export async function attachmentFromFormData(form: FormData): Promise<ReceiptAtt
   return { fileName: value.name || "attachment", mimeType: value.type, size: value.size, dataUrl };
 }
 
+async function attachmentToFile(attachment: ReceiptAttachment) {
+  const blob = await (await fetch(attachment.dataUrl)).blob();
+  return new File([blob], attachment.fileName || "attachment", { type: attachment.mimeType });
+}
+
 export async function shareAttachment(attachment: ReceiptAttachment, title = "پیوست تراکنش") {
   try {
-    const blob = await (await fetch(attachment.dataUrl)).blob();
-    const file = new File([blob], attachment.fileName || "attachment", { type: attachment.mimeType });
+    const file = await attachmentToFile(attachment);
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ title, files: [file] });
       return;
@@ -49,7 +53,7 @@ export async function shareAttachment(attachment: ReceiptAttachment, title = "پ
   }
 }
 
-function receiptText(data: TransactionReceiptData) {
+function receiptText(data: TransactionReceiptData, attachment?: ReceiptAttachment | null) {
   const lines = [
     "دفتر حساب شخصی",
     `${data.category} • ${data.reference}`,
@@ -60,6 +64,7 @@ function receiptText(data: TransactionReceiptData) {
     ...data.fields.filter((item) => item.value).map((item) => `${item.label}: ${item.value}`),
   ];
   if (data.note) lines.push(`یادداشت: ${data.note}`);
+  if (attachment) lines.push(`مدرک پیوست‌شده: ${attachment.fileName}`);
   lines.push("این رسید از اطلاعات ثبت‌شده در دفتر حساب شخصی ساخته شده و جایگزین رسید بانکی نیست.");
   return lines.join("\n");
 }
@@ -94,107 +99,231 @@ function drawWrapped(ctx: CanvasRenderingContext2D, text: string, x: number, y: 
   return y + lines.length * lineHeight;
 }
 
-async function buildReceiptImage(data: TransactionReceiptData) {
+function drawPill(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, background: string, foreground: string) {
+  ctx.font = "700 23px Vazirmatn, sans-serif";
+  const width = Math.ceil(ctx.measureText(text).width) + 42;
+  roundedRect(ctx, x - width, y, width, 50, 25);
+  ctx.fillStyle = background;
+  ctx.fill();
+  ctx.fillStyle = foreground;
+  ctx.fillText(text, x - 20, y + 33);
+  return width;
+}
+
+function loadImage(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("نمایش تصویر پیوست‌شده در رسید ممکن نشد."));
+    image.src = dataUrl;
+  });
+}
+
+function drawCoverImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number, radius: number) {
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const sourceWidth = width / scale;
+  const sourceHeight = height / scale;
+  const sourceX = Math.max(0, (image.naturalWidth - sourceWidth) / 2);
+  const sourceY = Math.max(0, (image.naturalHeight - sourceHeight) / 2);
+  ctx.save();
+  roundedRect(ctx, x, y, width, height, radius);
+  ctx.clip();
+  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+  ctx.restore();
+}
+
+async function buildReceiptImage(data: TransactionReceiptData, attachment?: ReceiptAttachment | null) {
   if ("fonts" in document) await document.fonts.ready;
+  const hasAttachment = Boolean(attachment);
   const canvas = document.createElement("canvas");
   canvas.width = 1080;
-  canvas.height = 1350;
+  canvas.height = hasAttachment ? 1780 : 1480;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("ساخت تصویر رسید در این مرورگر ممکن نیست.");
+
   ctx.direction = "rtl";
   ctx.textAlign = "right";
-  ctx.fillStyle = "#f3f0e8";
+  ctx.fillStyle = "#f5f2eb";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  roundedRect(ctx, 70, 60, 940, 1230, 42);
+  roundedRect(ctx, 58, 48, 964, canvas.height - 96, 48);
   ctx.fillStyle = "#ffffff";
   ctx.fill();
 
-  ctx.fillStyle = "#315d4c";
-  ctx.font = "700 34px Vazirmatn, sans-serif";
-  ctx.fillText("دفتر حساب شخصی", 930, 135);
-  ctx.fillStyle = "#8a867f";
-  ctx.font = "500 25px Vazirmatn, sans-serif";
-  ctx.fillText(`رسید تراکنش • ${data.reference}`, 930, 180);
-
-  ctx.fillStyle = "#1d2a25";
-  ctx.font = "800 34px Vazirmatn, sans-serif";
-  ctx.fillText(data.category, 930, 260);
-  ctx.font = "800 48px Vazirmatn, sans-serif";
-  let y = drawWrapped(ctx, data.title, 930, 330, 800, 62, 2) + 24;
-
-  ctx.fillStyle = data.direction === "positive" ? "#2e725b" : data.direction === "negative" ? "#b85d4c" : "#1d2a25";
-  ctx.font = "900 62px Vazirmatn, sans-serif";
-  ctx.fillText(money(data.amount), 930, y);
-  y += 78;
-
-  ctx.fillStyle = "#f6f4ee";
-  roundedRect(ctx, 120, y, 840, 94, 24);
+  roundedRect(ctx, 58, 48, 964, 12, 6);
+  ctx.fillStyle = data.direction === "positive" ? "#315d4c" : data.direction === "negative" ? "#b65b4a" : "#6b6f68";
   ctx.fill();
-  ctx.fillStyle = "#6b6861";
-  ctx.font = "600 25px Vazirmatn, sans-serif";
-  ctx.fillText(data.date, 900, y + 58);
-  ctx.textAlign = "left";
+
   ctx.fillStyle = "#315d4c";
-  ctx.fillText(data.status, 180, y + 58);
+  ctx.font = "800 31px Vazirmatn, sans-serif";
+  ctx.fillText("دفتر حساب شخصی", 930, 126);
+  ctx.fillStyle = "#8d887f";
+  ctx.font = "500 21px Vazirmatn, sans-serif";
+  ctx.fillText("رسید ثبت مالی", 930, 162);
+  drawPill(ctx, data.reference, 930, 190, "#f1eee7", "#6f6b64");
+
+  ctx.fillStyle = "#77736c";
+  ctx.font = "700 23px Vazirmatn, sans-serif";
+  ctx.fillText(data.category, 930, 292);
+  ctx.fillStyle = "#1d2824";
+  ctx.font = "850 42px Vazirmatn, sans-serif";
+  let y = drawWrapped(ctx, data.title, 930, 350, 800, 55, 2) + 42;
+
+  ctx.fillStyle = data.direction === "positive" ? "#2f705a" : data.direction === "negative" ? "#b65b4a" : "#26312c";
+  ctx.font = "900 65px Vazirmatn, sans-serif";
+  ctx.fillText(money(data.amount), 930, y);
+  y += 92;
+
+  roundedRect(ctx, 120, y, 840, 100, 28);
+  ctx.fillStyle = "#faf8f3";
+  ctx.fill();
+  ctx.fillStyle = "#8a867e";
+  ctx.font = "600 20px Vazirmatn, sans-serif";
+  ctx.fillText("تاریخ", 900, y + 35);
+  ctx.fillStyle = "#333b37";
+  ctx.font = "750 25px Vazirmatn, sans-serif";
+  ctx.fillText(data.date, 900, y + 72);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8a867e";
+  ctx.font = "600 20px Vazirmatn, sans-serif";
+  ctx.fillText("وضعیت", 180, y + 35);
+  ctx.fillStyle = data.direction === "negative" ? "#9e5548" : "#315d4c";
+  ctx.font = "750 25px Vazirmatn, sans-serif";
+  ctx.fillText(data.status, 180, y + 72);
   ctx.textAlign = "right";
-  y += 130;
+  y += 150;
 
-  ctx.font = "600 27px Vazirmatn, sans-serif";
+  ctx.fillStyle = "#8c877f";
+  ctx.font = "700 21px Vazirmatn, sans-serif";
+  ctx.fillText("جزئیات", 930, y);
+  y += 35;
+
+  ctx.font = "600 23px Vazirmatn, sans-serif";
   for (const field of data.fields.filter((item) => item.value).slice(0, 7)) {
-    ctx.fillStyle = "#918d84";
+    ctx.fillStyle = "#9b968e";
     ctx.fillText(field.label, 930, y);
-    ctx.fillStyle = "#252f2b";
-    ctx.font = "700 29px Vazirmatn, sans-serif";
-    y = drawWrapped(ctx, field.value, 930, y + 38, 760, 38, 2) + 30;
-    ctx.font = "600 27px Vazirmatn, sans-serif";
-    ctx.strokeStyle = "#ece8de";
+    ctx.fillStyle = "#29322e";
+    ctx.font = "750 26px Vazirmatn, sans-serif";
+    y = drawWrapped(ctx, field.value, 930, y + 34, 760, 36, 2) + 20;
+    ctx.strokeStyle = "#eeeae2";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(150, y - 12);
-    ctx.lineTo(930, y - 12);
+    ctx.moveTo(150, y);
+    ctx.lineTo(930, y);
     ctx.stroke();
+    y += 23;
+    ctx.font = "600 23px Vazirmatn, sans-serif";
   }
 
-  if (data.note && y < 1130) {
-    ctx.fillStyle = "#918d84";
-    ctx.font = "600 25px Vazirmatn, sans-serif";
-    ctx.fillText("یادداشت", 930, y);
-    ctx.fillStyle = "#4f514d";
-    ctx.font = "600 26px Vazirmatn, sans-serif";
-    drawWrapped(ctx, data.note, 930, y + 38, 760, 36, 2);
+  if (data.note && y < (hasAttachment ? 1180 : 1280)) {
+    roundedRect(ctx, 120, y + 2, 840, 112, 24);
+    ctx.fillStyle = "#faf8f3";
+    ctx.fill();
+    ctx.fillStyle = "#948f86";
+    ctx.font = "650 20px Vazirmatn, sans-serif";
+    ctx.fillText("یادداشت", 920, y + 38);
+    ctx.fillStyle = "#484e4a";
+    ctx.font = "600 23px Vazirmatn, sans-serif";
+    drawWrapped(ctx, data.note, 920, y + 72, 760, 32, 2);
+    y += 142;
   }
 
-  ctx.fillStyle = "#8b877f";
-  ctx.font = "500 20px Vazirmatn, sans-serif";
-  ctx.fillText("ساخته‌شده از اطلاعات ثبت‌شده در برنامه؛ جایگزین رسید بانکی نیست.", 930, 1235);
-  ctx.fillText("daftar-hesab-shakhsi", 930, 1270);
+  if (attachment) {
+    const evidenceTop = Math.max(y + 18, 1260);
+    ctx.fillStyle = "#8c877f";
+    ctx.font = "700 21px Vazirmatn, sans-serif";
+    ctx.fillText("مدرک پیوست‌شده", 930, evidenceTop);
+    const boxY = evidenceTop + 28;
+    roundedRect(ctx, 120, boxY, 840, 310, 26);
+    ctx.fillStyle = "#f8f6f1";
+    ctx.fill();
 
-  return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("ساخت فایل رسید انجام نشد.")), "image/png", 0.94));
+    if (attachment.mimeType.startsWith("image/")) {
+      try {
+        const image = await loadImage(attachment.dataUrl);
+        drawCoverImage(ctx, image, 145, boxY + 24, 300, 262, 20);
+        ctx.fillStyle = "#2e3733";
+        ctx.font = "750 25px Vazirmatn, sans-serif";
+        drawWrapped(ctx, attachment.fileName, 920, boxY + 82, 410, 34, 2);
+        ctx.fillStyle = "#8c877f";
+        ctx.font = "600 21px Vazirmatn, sans-serif";
+        ctx.fillText("تصویر مدرک همراه این رسید ارسال می‌شود", 920, boxY + 178);
+      } catch {
+        ctx.fillStyle = "#2e3733";
+        ctx.font = "750 25px Vazirmatn, sans-serif";
+        ctx.fillText(attachment.fileName, 920, boxY + 96);
+        ctx.fillStyle = "#8c877f";
+        ctx.font = "600 21px Vazirmatn, sans-serif";
+        ctx.fillText("تصویر پیوست‌شده", 920, boxY + 142);
+      }
+    } else {
+      roundedRect(ctx, 145, boxY + 50, 150, 190, 28);
+      ctx.fillStyle = "#efece5";
+      ctx.fill();
+      ctx.fillStyle = "#b65b4a";
+      ctx.font = "900 34px Vazirmatn, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("PDF", 220, boxY + 158);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#2e3733";
+      ctx.font = "750 25px Vazirmatn, sans-serif";
+      drawWrapped(ctx, attachment.fileName, 920, boxY + 92, 520, 34, 2);
+      ctx.fillStyle = "#8c877f";
+      ctx.font = "600 21px Vazirmatn, sans-serif";
+      ctx.fillText("فایل PDF اصلی همراه این رسید ارسال می‌شود", 920, boxY + 190);
+    }
+  }
+
+  const footerY = canvas.height - 118;
+  ctx.strokeStyle = "#eee9e1";
+  ctx.beginPath();
+  ctx.moveTo(120, footerY - 35);
+  ctx.lineTo(960, footerY - 35);
+  ctx.stroke();
+  ctx.fillStyle = "#979289";
+  ctx.font = "500 18px Vazirmatn, sans-serif";
+  ctx.fillText("ساخته‌شده از اطلاعات ثبت‌شده در برنامه؛ جایگزین رسید بانکی نیست.", 930, footerY);
+  ctx.fillText("daftar-hesab-shakhsi", 930, footerY + 34);
+
+  return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("ساخت فایل رسید انجام نشد.")), "image/png", 0.95));
 }
 
-export async function shareTransactionReceipt(data: TransactionReceiptData) {
-  const text = receiptText(data);
+function downloadFile(file: File) {
+  const url = URL.createObjectURL(file);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = file.name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+export async function shareTransactionReceipt(data: TransactionReceiptData, attachment?: ReceiptAttachment | null) {
+  const text = receiptText(data, attachment);
   try {
-    const blob = await buildReceiptImage(data);
+    const blob = await buildReceiptImage(data, attachment);
     const safeRef = data.reference.replace(/[^a-zA-Z0-9-_]/g, "-");
-    const file = new File([blob], `daftar-receipt-${safeRef}.png`, { type: "image/png" });
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ title: `رسید ${data.category}`, text, files: [file] });
+    const receiptFile = new File([blob], `daftar-receipt-${safeRef}.png`, { type: "image/png" });
+    const attachmentFile = attachment ? await attachmentToFile(attachment) : null;
+    const completeFiles = attachmentFile ? [receiptFile, attachmentFile] : [receiptFile];
+
+    if (navigator.share && navigator.canShare?.({ files: completeFiles })) {
+      await navigator.share({ title: `رسید ${data.category}`, text, files: completeFiles });
       return;
     }
-    if (navigator.share) {
+    if (!attachmentFile && navigator.share && navigator.canShare?.({ files: [receiptFile] })) {
+      await navigator.share({ title: `رسید ${data.category}`, text, files: [receiptFile] });
+      return;
+    }
+    if (!attachmentFile && navigator.share) {
       await navigator.share({ title: `رسید ${data.category}`, text });
       return;
     }
+
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.name;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadFile(receiptFile);
+    if (attachmentFile) window.setTimeout(() => downloadFile(attachmentFile), 350);
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
     throw error;
