@@ -178,7 +178,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v13/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -313,7 +313,7 @@ test("distinguishes user attachments from app-generated transaction receipts", a
   assert.match(app, /ارسال رسید این تراکنش/);
   assert.match(app, /ارسال پیوست/);
   assert.match(css, /\.transaction-detail-share/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v13/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
 });
 
 test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
@@ -337,4 +337,35 @@ test("gives transactions full detail pages and merges dong settlements into one 
   assert.match(css, /\.group-card\.collapsed/);
   assert.match(css, /\.unified-transaction-list/);
   assert.match(css, /\.transaction-detail-page/);
+});
+
+
+test("keeps mobile person/group layouts readable and exports complete PDF reports", async () => {
+  const [app, css, report, serviceWorker] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/report-pdf.ts", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+  ]);
+  assert.match(app, /sharePersonLedgerPdf/);
+  assert.match(app, /shareGroupPdf/);
+  assert.match(app, /ارسال PDF کل دفتر/);
+  assert.match(app, /ارسال PDF کامل گروه/);
+  assert.match(report, /export async function sharePersonLedgerPdf/);
+  assert.match(report, /export async function shareGroupPdf/);
+  assert.match(report, /%PDF-1\.4/);
+  assert.match(report, /application\/pdf/);
+  assert.match(report, /navigator\.canShare/);
+  assert.match(report, /ریز تراکنش‌ها/);
+  assert.match(css, /v16 — mobile ledger\/group regression fixes/);
+  assert.match(css, /\.ledger-item > \.ledger-item-open/);
+  assert.match(css, /\.group-card-head > \.group-title-button/);
+  assert.match(css, /\.group-card\.collapsed \.group-head-actions/);
+  const legacyLedgerButton = css.indexOf(".ledger-item > button");
+  const ledgerFix = css.lastIndexOf(".ledger-item > .ledger-item-open");
+  const legacyGroupButton = css.indexOf(".group-card-head > button");
+  const groupFix = css.lastIndexOf(".group-card-head > .group-title-button");
+  assert.ok(ledgerFix > legacyLedgerButton);
+  assert.ok(groupFix > legacyGroupButton);
+  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
 });
