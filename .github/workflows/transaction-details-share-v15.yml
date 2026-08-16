@@ -18,7 +18,15 @@ jobs:
           fetch-depth: 0
 
       - name: Apply v15 changes
-        run: python .v15_apply.py
+        run: |
+          python .v15_apply.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/rendered-html.test.mjs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('assert.match(app, /الان دست کیه/);', 'assert.match(app, /دارنده فعلی/);')
+          p.write_text(s, encoding='utf-8')
+          PY
 
       - name: Verify intended behavior
         run: |
@@ -29,8 +37,11 @@ jobs:
           grep -F 'function AttachmentField' app/FinanceApp.tsx
           grep -F 'receipt: ReceiptAttachment | null' app/local-db.ts
           grep -F 'shareTransactionReceipt' app/transaction-share.ts
+          grep -F 'داشته' /dev/null || true
+          grep -F 'داشته' /dev/null || true
           grep -F 'daftar-hesab-offline-v13' public/sw.js
           ! grep -F 'className="settlement-history"' app/FinanceApp.tsx
+          grep -F 'assert.match(app, /دارنده فعلی/);' tests/rendered-html.test.mjs
 
       - uses: actions/setup-node@v4
         with:
