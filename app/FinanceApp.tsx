@@ -534,11 +534,13 @@ export function FinanceApp() {
                 <div className="balance-art" aria-hidden="true"><i /><i /><i /><i /></div>
               </article>
 
-              <div className="section-title"><h2>ثبت سریع</h2><button onClick={() => setSheet("actions")}>همه موارد</button></div>
-              <div className="quick-grid">
-                {quickEntryKinds.slice(0, 2).map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
+              <div className="section-title"><h2>ثبت سریع</h2></div>
+              <div className="quick-grid quick-scroll" aria-label="ثبت‌های سریع">
+                {quickEntryKinds.map((kind) => { const meta = entryMeta[kind]; return <button className="quick-action" key={kind} onClick={() => openEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><span>{meta.label}</span></button>; })}
                 <button className="quick-action" onClick={openLoans}><span className="quick-icon amber"><Icon name="bank" /></span><span>وام و اقساط</span></button>
-                <button className="quick-action" onClick={openChecks}><span className="quick-icon violet"><Icon name="check" /></span><span>چک‌ها</span></button>
+                <button className="quick-action" onClick={() => openCheckForm()}><span className="quick-icon violet"><Icon name="check" /></span><span>چک</span></button>
+                <button className="quick-action" onClick={() => data.groups.length ? openExpense() : beginGroup()}><span className="quick-icon blue"><Icon name="users" /></span><span>{data.groups.length ? "خرید دُنگی" : "گروه دُنگی"}</span></button>
+                <button className="quick-action" onClick={() => setSheet("person")}><span className="quick-icon sand"><Icon name="user-plus" /></span><span>شخص جدید</span></button>
               </div>
 
               <div className="section-title"><h2>نزدیک‌ترین سررسیدها</h2><button onClick={() => setTab("calendar")}>مشاهده همه</button></div>
@@ -640,10 +642,9 @@ export function FinanceApp() {
       )}
 
       <nav className="bottom-nav" aria-label="منوی اصلی">
-        <NavButton active={tab === "home"} icon="home" label="خانه" onClick={() => setTab("home")} />
         <NavButton active={tab === "ledger"} icon="book" label="دفتر" onClick={() => setTab("ledger")} />
-        <button className="nav-add" aria-label="ثبت جدید" onClick={() => setSheet("actions")}>+</button>
         <NavButton active={tab === "groups"} icon="users" label="دُنگ‌ها" onClick={() => setTab("groups")} />
+        <NavButton active={tab === "home"} icon="home" label="خانه" onClick={() => setTab("home")} />
         <NavButton active={tab === "checks"} icon="check" label="چک‌ها" onClick={openChecks} />
         <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
       </nav>

@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v9/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v10/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -238,11 +238,30 @@ test("uses plus and minus steppers for small counting fields", async () => {
 });
 
 
-test("keeps cheque management directly accessible from the main navigation", async () => {
+test("keeps cheque management directly accessible and centers home in the five-item navigation", async () => {
   const [app, css] = await Promise.all([
     readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
   assert.match(app, /active=\{tab === "checks"\} icon="check" label="چک‌ها" onClick=\{openChecks\}/);
-  assert.match(css, /grid-template-columns: repeat\(6, 1fr\)/);
+  assert.match(app, /label="دُنگ‌ها"[\s\S]*label="خانه"[\s\S]*label="چک‌ها"/);
+  assert.doesNotMatch(app, /className="nav-add"/);
+  assert.match(css, /grid-template-columns: repeat\(5, 1fr\)/);
+});
+
+test("shows every quick action in a horizontally scrollable home strip", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /className="quick-grid quick-scroll"/);
+  assert.match(app, /quickEntryKinds\.map/);
+  assert.match(app, /<span>وام و اقساط<\/span>/);
+  assert.match(app, /<span>چک<\/span>/);
+  assert.match(app, /خرید دُنگی/);
+  assert.match(app, /شخص جدید/);
+  assert.doesNotMatch(app, /ثبت سریع<\/h2><button[^>]*>همه موارد/);
+  assert.match(css, /\.quick-scroll \{/);
+  assert.match(css, /overflow-x: auto/);
+  assert.match(css, /flex: 0 0 92px/);
 });
