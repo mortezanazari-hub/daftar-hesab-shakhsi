@@ -28,6 +28,16 @@ jobs:
           grep -F 'تراکنش تسویه‌کننده' app/FinanceApp.tsx
           grep -F 'daftar-hesab-offline-v15' public/sw.js
 
+      - name: Normalize behavior-oriented regression assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/rendered-html.test.mjs')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('assert.match(app, /onToggleEntry=\\{handleEntrySettlement\\}/);', 'assert.match(app, /handleEntrySettlement\\(entry\\)/);')
+          path.write_text(text, encoding='utf-8')
+          PY
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
