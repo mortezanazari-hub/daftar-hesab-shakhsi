@@ -918,3 +918,9 @@ textarea {
   .evidence-file { grid-template-columns: 44px minmax(0,1fr); }
   .evidence-file > b { grid-column: 2; }
 }
+
+
+/* v21 — attachment tap opens by default; sharing remains explicit */
+.evidence-actions { display: flex; justify-content: flex-end; padding: 9px 11px 11px; border-top: 1px solid #f0ece5; background: #fff; }
+.evidence-actions button { min-height: 34px; padding: 7px 10px; border: 1px solid #dce5df; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #f5f9f6; color: var(--green); font: inherit; font-size: 7px; font-weight: 900; cursor: pointer; }
+.evidence-preview span { pointer-events: none; }

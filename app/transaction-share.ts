@@ -34,6 +34,30 @@ async function attachmentToFile(attachment: ReceiptAttachment) {
   return new File([blob], attachment.fileName || "attachment", { type: attachment.mimeType });
 }
 
+export async function openAttachment(attachment: ReceiptAttachment) {
+  const previewWindow = window.open("", "_blank");
+  if (previewWindow) previewWindow.opener = null;
+  try {
+    const file = await attachmentToFile(attachment);
+    const url = URL.createObjectURL(file);
+    if (previewWindow) {
+      previewWindow.location.replace(url);
+    } else {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (error) {
+    previewWindow?.close();
+    throw error;
+  }
+}
+
 export async function shareAttachment(attachment: ReceiptAttachment, title = "پیوست تراکنش") {
   try {
     const file = await attachmentToFile(attachment);
