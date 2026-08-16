@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v11/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v12/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -200,7 +200,7 @@ test("filters due dates by Jalali month and keeps completed items visible like a
     readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
-  assert.match(app, /useState<"current" \| "next" \| "all">\("current"\)/);
+  assert.match(app, /useState<"overdue" \| "current" \| "next" \| "all">\("current"\)/);
   assert.match(app, /jalaliMonthName\(currentJalaliMonth\.jm\)/);
   assert.match(app, /jalaliMonthName\(nextJalaliMonth\.jm\)/);
   assert.match(app, /مخفی کردن انجام‌شده‌ها/);
@@ -280,4 +280,37 @@ test("prevents iPhone form auto-zoom and page-wide horizontal drift", async () =
   assert.match(css, /touch-action:\s*manipulation/);
   assert.match(css, /@supports \(-webkit-touch-callout: none\)/);
   assert.match(css, /font-size:\s*16px !important/);
+});
+
+
+test("filters overdue due items separately from current and next Jalali months", async () => {
+  const app = await readFile(new URL("app/FinanceApp.tsx", root), "utf8");
+  assert.match(app, /useState<"overdue" \| "current" \| "next" \| "all">\("current"\)/);
+  assert.match(app, /dueRange === "overdue"/);
+  assert.match(app, /return item\.overdue/);
+  assert.match(app, /عقب‌افتاده/);
+  assert.match(app, /overdueDueCount/);
+});
+
+test("keeps dong settlements visible and stores shareable local receipts for real payments", async () => {
+  const [app, localDb, css, serviceWorker] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+  ]);
+  assert.match(localDb, /export type ReceiptAttachment/);
+  assert.match(localDb, /receipt: ReceiptAttachment \| null/);
+  assert.match(localDb, /cleanReceipt\(payload\.receipt\)/);
+  assert.match(localDb, /receipt: settlement\.receipt \?\? null/);
+  assert.match(app, /function ReceiptField/);
+  assert.match(app, /async function shareReceipt/);
+  assert.match(app, /name="receipt" type="file"/);
+  assert.match(app, /className="settlement-history" open/);
+  assert.match(app, /تاریخچه تسویه‌ها/);
+  assert.match(app, /ارسال رسید/);
+  assert.match(app, /رسید پرداخت/);
+  assert.match(app, /رسید خرید/);
+  assert.match(css, /\.receipt-field/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v12/);
 });
