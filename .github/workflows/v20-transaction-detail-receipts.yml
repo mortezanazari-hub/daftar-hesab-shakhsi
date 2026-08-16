@@ -20,6 +20,18 @@ jobs:
       - name: Apply v20 visual changes
         run: python .v20_apply.py
 
+      - name: Align legacy receipt regression with complete sharing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/rendered-html.test.mjs")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('assert.match(app, /ارسال رسید این تراکنش/);', 'assert.match(app, /ارسال رسید کامل/);')
+          text = text.replace('assert.match(app, /ارسال پیوست/);', 'assert.match(app, /مدرک پیوست‌شده/);')
+          p.write_text(text, encoding="utf-8")
+          PY
+
       - name: Verify complete receipt sharing
         run: |
           grep -F 'shareTransactionReceipt(receipt, attachment)' app/FinanceApp.tsx
