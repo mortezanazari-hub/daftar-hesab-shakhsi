@@ -18,7 +18,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply v14 changes
-        run: python .v14_apply.py
+        run: |
+          python .v14_apply.py
+          python .v14_fix_test.py
 
       - name: Verify intended behavior
         run: |
@@ -46,9 +48,9 @@ jobs:
       - name: Commit validated product files
         shell: bash
         run: |
-          rm .v14_apply.py .github/workflows/due-settlement-receipts-v14.yml
+          rm .v14_apply.py .v14_fix_test.py .github/workflows/due-settlement-receipts-v14.yml
           git config user.name "Morteza Nazari"
           git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
-          git add app/FinanceApp.tsx app/local-db.ts app/globals.css public/sw.js tests/rendered-html.test.mjs .v14_apply.py .github/workflows/due-settlement-receipts-v14.yml
+          git add app/FinanceApp.tsx app/local-db.ts app/globals.css public/sw.js tests/rendered-html.test.mjs .v14_apply.py .v14_fix_test.py .github/workflows/due-settlement-receipts-v14.yml
           git commit -m "Track overdue items and payment receipts"
           git push origin HEAD:agent/due-settlement-receipts-v14
