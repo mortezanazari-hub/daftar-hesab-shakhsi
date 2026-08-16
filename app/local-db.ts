@@ -1,6 +1,6 @@
 export type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
 export type ReceiptAttachment = { fileName: string; mimeType: string; size: number; dataUrl: string };
-export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string };
+export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
 export type LoanPayment = { id: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
 export type LoanInstallment = { id: number; loanId: number; number: number; dueDate: string; amount: number; paidAmount: number; remainingAmount: number; status: "open" | "partial" | "paid"; overdue: boolean; payments: LoanPayment[] };
 export type Loan = { id: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; financedAmount: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string; installments: LoanInstallment[]; totalPaid: number; remainingAmount: number; paidCount: number; overdueCount: number; paymentCount: number; financeCost: number; nextInstallment: LoanInstallment | null };
@@ -9,7 +9,7 @@ export type CheckStatus = "open" | "cleared" | "bounced" | "cancelled" | "return
 export type CheckSayadStatus = "not_registered" | "registered" | "confirmed" | "transferred";
 export type CheckEventType = "received" | "issued" | "transferred" | "cleared" | "bounced" | "cancelled" | "returned" | "reopened";
 export type CheckEvent = { id: number; checkId: number; type: CheckEventType; eventDate: string; fromName: string; toName: string; note: string; createdAt: string };
-export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName: string; events: CheckEvent[]; overdue: boolean; financialOpen: boolean };
+export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; receipt: ReceiptAttachment | null; currentHolderName: string; events: CheckEvent[]; overdue: boolean; financialOpen: boolean };
 export type GroupMember = { personId: number; name: string; shareWeight: number };
 export type ExpenseShare = { personId: number; name: string; amount: number; weight: number };
 export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[]; receipt: ReceiptAttachment | null };
@@ -55,7 +55,7 @@ export type FinanceBackup = {
 };
 
 type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
-type StoredEntry = Omit<Entry, "id" | "personName"> & { id?: number };
+type StoredEntry = Omit<Entry, "id" | "personName" | "receipt"> & { id?: number; receipt?: ReceiptAttachment | null };
 type StoredGroup = { id?: number; name: string; createdAt: string };
 type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
 type StoredExpense = Omit<Expense, "id" | "payerName" | "shares" | "receipt"> & { id?: number; groupId: number; createdAt: string; receipt?: ReceiptAttachment | null };
@@ -64,7 +64,7 @@ type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; to
 type StoredLoan = { id?: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string };
 type StoredLoanInstallment = { id?: number; loanId: number; number: number; dueDate: string; amount: number };
 type StoredLoanPayment = { id?: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string; receipt?: ReceiptAttachment | null };
-type StoredCheck = { id?: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName?: string };
+type StoredCheck = { id?: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; currentHolderName?: string; receipt?: ReceiptAttachment | null };
 type StoredCheckEvent = { id?: number; checkId: number; type: CheckEventType; eventDate: string; fromName: string; toName: string; note: string; createdAt: string };
 
 const DB_NAME = "hamhesab-local";
@@ -380,7 +380,7 @@ export async function getFinanceData(): Promise<FinanceData> {
     .sort((a, b) => Number(b.isSelf) - Number(a.isSelf) || a.name.localeCompare(b.name, "fa"));
   const names = new Map(persons.map((person) => [person.id, person.name]));
   const entries = storedEntries
-    .map((entry) => ({ ...entry, personName: names.get(entry.personId) ?? "نامشخص" }))
+    .map((entry) => ({ ...entry, personName: names.get(entry.personId) ?? "نامشخص", receipt: entry.receipt ?? null }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id);
   const groups = storedGroups
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
@@ -465,7 +465,7 @@ export async function getFinanceData(): Promise<FinanceData> {
         .map((event) => ({ ...event }))
         .sort((a, b) => b.eventDate.localeCompare(a.eventDate) || b.id - a.id);
       const currentHolderName = check.currentHolderName || (check.direction === "received" ? "من" : check.beneficiaryName || check.counterpartyName);
-      return { ...check, currentHolderName, events, overdue: checkFinancialOpen(check.status) && check.dueDate < today, financialOpen: checkFinancialOpen(check.status) };
+      return { ...check, receipt: check.receipt ?? null, currentHolderName, events, overdue: checkFinancialOpen(check.status) && check.dueDate < today, financialOpen: checkFinancialOpen(check.status) };
     })
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || b.createdAt.localeCompare(a.createdAt) || b.id - a.id);
   return { persons, entries, groups, accounts: buildPersonAccounts(persons, entries, groups, checks), loans, checks };
@@ -510,14 +510,15 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const direction = String(payload.direction) === "receivable" ? "receivable" : "debt";
     const title = cleanText(payload.title, 100) || ({ debt: "بدهی", receivable: "طلب", installment: "قسط", check: "چک" }[kind] ?? "ثبت مالی");
     const id = operation === "update_entry" ? positiveInteger(payload.id, "شناسه") : null;
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : null;
     const transaction = db.transaction("entries", "readwrite");
     const store = transaction.objectStore("entries");
     if (id) {
       const current = await requestResult(store.get(id)) as StoredEntry | undefined;
       if (!current) throw new Error("ثبت موردنظر پیدا نشد.");
-      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400) });
+      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400), receipt: receipt ?? current.receipt ?? null });
     } else {
-      store.add({ personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, status: "open", note: cleanText(payload.note, 400), createdAt: new Date().toISOString() } satisfies StoredEntry);
+      store.add({ personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, status: "open", note: cleanText(payload.note, 400), createdAt: new Date().toISOString(), receipt } satisfies StoredEntry);
     }
     await transactionDone(transaction);
     return;
@@ -665,13 +666,16 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const countInBalance = payload.countInBalance === true || String(payload.countInBalance) === "true" || String(payload.countInBalance) === "on";
     const currentChecks = await all<StoredCheck & { id: number }>(db, "checks");
     if (sayadId && currentChecks.some((check) => check.sayadId === sayadId && check.id !== id)) throw new Error("این شناسه صیادی قبلاً در دفتر چک ثبت شده است.");
+    const currentCheck = id ? currentChecks.find((check) => check.id === id) : undefined;
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : currentCheck?.receipt ?? null;
     const record = {
       direction, checkType, amount, issueDate, dueDate, purpose, sayadId,
       chequeNumber: cleanText(payload.chequeNumber, 50), bankName, branchName: cleanText(payload.branchName, 80),
       issuerName, beneficiaryName, transferorName: direction === "received" ? cleanText(payload.transferorName, 100) : "",
       relatedPersonId, counterpartyName, countInBalance, sayadStatus, status,
-      note: cleanText(payload.note, 500), createdAt: id ? currentChecks.find((check) => check.id === id)?.createdAt ?? new Date().toISOString() : new Date().toISOString(),
-      currentHolderName: id ? currentChecks.find((check) => check.id === id)?.currentHolderName || (direction === "received" ? "من" : beneficiaryName) : (direction === "received" ? "من" : beneficiaryName),
+      note: cleanText(payload.note, 500), createdAt: currentCheck?.createdAt ?? new Date().toISOString(),
+      currentHolderName: currentCheck?.currentHolderName || (direction === "received" ? "من" : beneficiaryName),
+      receipt,
     } satisfies StoredCheck;
     const transaction = db.transaction(["checks", "checkEvents"], "readwrite");
     if (id) {

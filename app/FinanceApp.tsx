@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useMemo, useRef, useState, useEffect } from "react";
+import { FormEvent, type ReactNode, useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { buildJalaliInstallmentDates, isoToJalaliInput, jalaliFirstWeekday, jalaliInputToIso, jalaliMonthDays, jalaliMonthName, jalaliPartsToInput, jalaliTodayParts, normalizeDigits, persianDate, todayIso, todayJalaliInput, toPersianDigits } from "./jalali";
 import {
   applyFinanceOperation,
@@ -14,17 +14,26 @@ import {
   type CheckRecord,
   type Loan,
   type LoanInstallment,
+  type LoanPayment,
   type Person,
   type PersonAccount,
   type ReceiptAttachment,
   type SettlementSuggestion,
 } from "./local-db";
+import { attachmentFromFormData, shareAttachment, shareTransactionReceipt, type TransactionReceiptData } from "./transaction-share";
 
-type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "tools" | null;
+type Sheet = "actions" | "person" | "entry" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "transaction-detail" | "tools" | null;
 type Tab = "home" | "ledger" | "groups" | "loans" | "checks" | "calendar";
 type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
 
 type SettlementDraft = { groupId: number; fromPersonId?: number; toPersonId?: number; amount?: number };
+type TransactionDetailTarget =
+  | { kind: "entry"; id: number }
+  | { kind: "check"; id: number }
+  | { kind: "expense"; groupId: number; id: number }
+  | { kind: "settlement"; groupId: number; id: number }
+  | { kind: "loan-installment"; loanId: number; installmentId: number }
+  | { kind: "loan-payment"; loanId: number; installmentId: number; paymentId: number };
 type DueItem =
   | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; entry: Entry }
   | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; loan: Loan; installment: LoanInstallment }
@@ -81,40 +90,6 @@ function balanceLabel(value: number) {
   return value > 0 ? `${money(value)} طلبکارم` : `${money(-value)} بدهکارم`;
 }
 
-async function receiptFromFormData(form: FormData): Promise<ReceiptAttachment | null> {
-  const value = form.get("receipt");
-  if (!(value instanceof File) || value.size === 0) return null;
-  if (!(value.type.startsWith("image/") || value.type === "application/pdf")) throw new Error("رسید باید عکس یا فایل PDF باشد.");
-  if (value.size > 5_000_000) throw new Error("حجم رسید باید کمتر از ۵ مگابایت باشد.");
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("خواندن فایل رسید انجام نشد."));
-    reader.readAsDataURL(value);
-  });
-  return { fileName: value.name || "receipt", mimeType: value.type, size: value.size, dataUrl };
-}
-
-async function shareReceipt(receipt: ReceiptAttachment, title = "رسید پرداخت") {
-  try {
-    const blob = await (await fetch(receipt.dataUrl)).blob();
-    const file = new File([blob], receipt.fileName || "receipt", { type: receipt.mimeType });
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ title, files: [file] });
-      return;
-    }
-    const anchor = document.createElement("a");
-    anchor.href = receipt.dataUrl;
-    anchor.download = receipt.fileName || "receipt";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
-    throw error;
-  }
-}
-
 export function FinanceApp() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [tab, setTab] = useState<Tab>("home");
@@ -130,6 +105,7 @@ export function FinanceApp() {
   const [paymentInstallmentId, setPaymentInstallmentId] = useState<number | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [settlementDraft, setSettlementDraft] = useState<SettlementDraft | null>(null);
+  const [detailTarget, setDetailTarget] = useState<TransactionDetailTarget | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [groupMembers, setGroupMembers] = useState<Record<number, number>>({});
@@ -244,7 +220,7 @@ export function FinanceApp() {
     return `${entry.personName} ${entry.title} ${entry.note}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch);
   });
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase("fa");
-  const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${group.expenses.map((expense) => expense.title).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
+  const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${group.expenses.map((expense) => expense.title).join(" ")} ${group.settlements.map((settlement) => `${settlement.fromName} ${settlement.toName} ${settlement.note}`).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
   const normalizedLoanSearch = loanSearch.trim().toLocaleLowerCase("fa");
   const filteredLoans = (data?.loans ?? []).filter((loan) => {
     if (loanFilter === "active" && loan.remainingAmount === 0) return false;
@@ -333,6 +309,18 @@ export function FinanceApp() {
     setSheet("person-ledger");
   }
 
+  function openTransactionDetail(target: TransactionDetailTarget) {
+    setDetailTarget(target);
+    setSheet("transaction-detail");
+  }
+
+  function openLedgerItem(item: PersonAccount["items"][number]) {
+    if (item.source === "entry") openTransactionDetail({ kind: "entry", id: item.sourceId });
+    if (item.source === "check") openTransactionDetail({ kind: "check", id: item.sourceId });
+    if (item.source === "expense" && item.groupId) openTransactionDetail({ kind: "expense", groupId: item.groupId, id: item.sourceId });
+    if (item.source === "settlement" && item.groupId) openTransactionDetail({ kind: "settlement", groupId: item.groupId, id: item.sourceId });
+  }
+
   function openSettlement(group: Group, suggestion?: SettlementSuggestion) {
     setSettlementDraft({ groupId: group.id, fromPersonId: suggestion?.fromPersonId, toPersonId: suggestion?.toPersonId, amount: suggestion?.amount });
     setSheet("settlement");
@@ -388,23 +376,25 @@ export function FinanceApp() {
     void post({ operation: "add_person", name: form.get("name"), phone: form.get("phone") });
   }
 
-  function submitEntry(event: FormEvent<HTMLFormElement>) {
+  async function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     let dueDate: string | null;
+    let attachment: ReceiptAttachment | null;
     try {
       dueDate = jalaliInputToIso(String(form.get("dueDate") ?? ""));
-    } catch (dateError) {
-      setError(dateError instanceof Error ? dateError.message : "تاریخ شمسی معتبر نیست.");
+      attachment = await attachmentFromFormData(form);
+    } catch (formError) {
+      setError(formError instanceof Error ? formError.message : "اطلاعات ثبت معتبر نیست.");
       return;
     }
-    void post({
+    await post({
       operation: editingEntry ? "update_entry" : "add_entry",
       id: editingEntry?.id,
       personId: form.get("personId"),
       kind: entryKind,
       direction: entryKind === "receivable" ? "receivable" : entryKind === "debt" ? "debt" : form.get("direction"),
-      title: form.get("title"), amount: form.get("amount"), dueDate, note: form.get("note"),
+      title: form.get("title"), amount: form.get("amount"), dueDate, note: form.get("note"), receipt: attachment,
     });
   }
 
@@ -437,7 +427,7 @@ export function FinanceApp() {
     let receipt: ReceiptAttachment | null;
     try {
       paymentDate = jalaliInputToIso(String(form.get("paymentDate") ?? ""), true) as string;
-      receipt = await receiptFromFormData(form);
+      receipt = await attachmentFromFormData(form);
     } catch (dateError) {
       setError(dateError instanceof Error ? dateError.message : "تاریخ پرداخت معتبر نیست.");
       return;
@@ -445,24 +435,26 @@ export function FinanceApp() {
     await post({ operation: "add_loan_payment", loanId: paymentLoan.id, installmentId: paymentInstallment.id, amount: form.get("amount"), paymentDate, note: form.get("note"), receipt });
   }
 
-  function submitCheck(event: FormEvent<HTMLFormElement>) {
+  async function submitCheck(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     let dueDate: string;
     let issueDate: string | null;
+    let attachment: ReceiptAttachment | null;
     try {
       dueDate = jalaliInputToIso(String(form.get("dueDate") ?? ""), true) as string;
       issueDate = jalaliInputToIso(String(form.get("issueDate") ?? ""));
-    } catch (dateError) {
-      setError(dateError instanceof Error ? dateError.message : "تاریخ چک معتبر نیست.");
+      attachment = await attachmentFromFormData(form);
+    } catch (formError) {
+      setError(formError instanceof Error ? formError.message : "اطلاعات چک معتبر نیست.");
       return;
     }
-    void post({
+    await post({
       operation: editingCheck ? "update_check" : "add_check", id: editingCheck?.id,
       direction: form.get("direction"), checkType: form.get("checkType"), amount: form.get("amount"), issueDate, dueDate,
       purpose: form.get("purpose"), sayadId: form.get("sayadId"), chequeNumber: form.get("chequeNumber"), bankName: form.get("bankName"), branchName: form.get("branchName"),
       issuerName: form.get("issuerName"), beneficiaryName: form.get("beneficiaryName"), transferorName: form.get("transferorName"), relatedPersonId: form.get("relatedPersonId"), counterpartyName: form.get("counterpartyName"),
-      countInBalance: form.get("countInBalance"), sayadStatus: form.get("sayadStatus"), status: form.get("status"), note: form.get("note"),
+      countInBalance: form.get("countInBalance"), sayadStatus: form.get("sayadStatus"), status: form.get("status"), note: form.get("note"), receipt: attachment,
     });
   }
 
@@ -494,7 +486,7 @@ export function FinanceApp() {
     let receipt: ReceiptAttachment | null;
     try {
       expenseDate = jalaliInputToIso(String(form.get("expenseDate") ?? ""), true) as string;
-      receipt = await receiptFromFormData(form);
+      receipt = await attachmentFromFormData(form);
     } catch (dateError) {
       setError(dateError instanceof Error ? dateError.message : "تاریخ شمسی معتبر نیست.");
       return;
@@ -510,7 +502,7 @@ export function FinanceApp() {
     let receipt: ReceiptAttachment | null;
     try {
       settlementDate = jalaliInputToIso(String(form.get("settlementDate") ?? ""), true) as string;
-      receipt = await receiptFromFormData(form);
+      receipt = await attachmentFromFormData(form);
     } catch (dateError) {
       setError(dateError instanceof Error ? dateError.message : "تاریخ شمسی معتبر نیست.");
       return;
@@ -588,7 +580,7 @@ export function FinanceApp() {
 
               <div className="section-title"><h2>نزدیک‌ترین سررسیدها</h2><button onClick={() => setTab("calendar")}>مشاهده همه</button></div>
               <div className="surface-list due-list">
-                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} />)}
+                {upcoming.slice(0, 3).map((item) => <DueItemRow key={item.id} item={item} onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} onOpen={() => item.source === "entry" ? openTransactionDetail({ kind: "entry", id: item.entry.id }) : item.source === "check" ? openTransactionDetail({ kind: "check", id: item.check.id }) : openTransactionDetail({ kind: "loan-installment", loanId: item.loan.id, installmentId: item.installment.id })} />)}
                 {!upcoming.length && <EmptyState icon="calendar-check" title="سررسید نزدیکی نداری" detail="چک، بدهی تاریخ‌دار یا قسط بعدی را ثبت کن تا به‌موقع ببینی." action="ثبت چک" onAction={() => openCheckForm()} />}
               </div>
 
@@ -620,7 +612,7 @@ export function FinanceApp() {
               <div className="section-title"><h2>ثبت‌های مستقیم</h2><button onClick={() => setSheet("actions")}>+ ثبت جدید</button></div>
               <div className="filter-row"><button className={entryFilter === "all" ? "active" : ""} onClick={() => setEntryFilter("all")}>همه</button><button className={entryFilter === "open" ? "active" : ""} onClick={() => setEntryFilter("open")}>باز</button><button className={entryFilter === "paid" ? "active" : ""} onClick={() => setEntryFilter("paid")}>تسویه‌شده</button></div>
               <div className="surface-list entries-list">
-                {filteredEntries.map((entry) => <EntryRow key={entry.id} entry={entry} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} />)}
+                {filteredEntries.map((entry) => <EntryRow key={entry.id} entry={entry} onOpen={() => openTransactionDetail({ kind: "entry", id: entry.id })} onToggle={() => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEdit={() => openEntry(entry.kind, entry)} onDelete={() => deleteEntry(entry)} />)}
                 {!filteredEntries.length && <EmptyState icon="book" title="ثبت مطابق فیلتر پیدا نشد" detail="ثبت جدید بساز یا جست‌وجو و فیلتر را تغییر بده." action="ثبت مالی" onAction={() => setSheet("actions")} />}
               </div>
             </section>
@@ -632,7 +624,7 @@ export function FinanceApp() {
               <SearchField value={groupSearch} onChange={setGroupSearch} placeholder="جست‌وجوی گروه، عضو یا خرید..." />
               {data.groups.length > 0 && <button className="expense-cta" onClick={() => openExpense()}><span className="expense-plus">+</span><span><strong>ثبت خرید مشترک</strong><small>افراد همین خرید و سهم هر نفر را مشخص کن</small></span><b>‹</b></button>}
               <div className="groups-stack">
-                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onEditGroup={() => beginGroup(group)} onDeleteGroup={() => deleteGroup(group)} onExpense={() => openExpense(group.id)} onEditExpense={(expense) => openExpense(group.id, expense)} onDeleteExpense={deleteExpense} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onDeleteSettlement={deleteSettlement} />)}
+                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onEditGroup={() => beginGroup(group)} onDeleteGroup={() => deleteGroup(group)} onExpense={() => openExpense(group.id)} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onOpenTransaction={openTransactionDetail} />)}
                 {!filteredGroups.length && <EmptyState icon="users" title={data.groups.length ? "گروهی پیدا نشد" : "دُنگ‌ها از اینجا ساده می‌شوند"} detail={data.groups.length ? "عبارت جست‌وجو را تغییر بده." : "اعضا را انتخاب کن؛ در هر خرید هم می‌توانی شرکت‌کننده‌ها و سهم‌ها را جداگانه تعیین کنی."} action={data.groups.length ? "پاک کردن جست‌وجو" : "ساخت اولین گروه"} onAction={() => data.groups.length ? setGroupSearch("") : beginGroup()} />}
               </div>
             </section>
@@ -645,7 +637,7 @@ export function FinanceApp() {
               <SearchField value={loanSearch} onChange={setLoanSearch} placeholder="جست‌وجوی بانک، فروشگاه، قرارداد یا عنوان..." />
               <div className="filter-row"><button className={loanFilter === "active" ? "active" : ""} onClick={() => setLoanFilter("active")}>فعال</button><button className={loanFilter === "settled" ? "active" : ""} onClick={() => setLoanFilter("settled")}>تسویه‌شده</button><button className={loanFilter === "all" ? "active" : ""} onClick={() => setLoanFilter("all")}>همه</button></div>
               <div className="loan-stack">
-                {filteredLoans.map((loan) => <LoanCard key={loan.id} loan={loan} onEdit={() => openLoanForm(loan)} onDelete={() => deleteLoan(loan)} onPayment={(installment) => openLoanPayment(loan, installment)} onDeletePayment={deleteLoanPayment} />)}
+                {filteredLoans.map((loan) => <LoanCard key={loan.id} loan={loan} onEdit={() => openLoanForm(loan)} onDelete={() => deleteLoan(loan)} onPayment={(installment) => openLoanPayment(loan, installment)} onDeletePayment={deleteLoanPayment} onOpenInstallment={(installment) => openTransactionDetail({ kind: "loan-installment", loanId: loan.id, installmentId: installment.id })} onOpenPayment={(installment, payment) => openTransactionDetail({ kind: "loan-payment", loanId: loan.id, installmentId: installment.id, paymentId: payment.id })} />)}
                 {!filteredLoans.length && <EmptyState icon="bank" title={data.loans.length ? "قراردادی مطابق فیلتر پیدا نشد" : "اولین وام یا خرید اقساطی را ثبت کن"} detail={data.loans.length ? "جست‌وجو یا فیلتر را تغییر بده." : "بانک یا فروشگاه، مبلغ، تعداد قسط و اولین سررسید کافی است."} action={data.loans.length ? "نمایش همه" : "ثبت قرارداد"} onAction={() => data.loans.length ? setLoanFilter("all") : openLoanForm()} />}
               </div>
             </section>
@@ -657,7 +649,7 @@ export function FinanceApp() {
               <div className="check-summary-grid personal"><div><small>چک باز</small><strong>{number.format(data.checks.filter((check) => check.financialOpen).length)} مورد</strong></div><div><small>الان دست من</small><strong>{number.format(data.checks.filter((check) => check.financialOpen && check.currentHolderName === "من").length)} مورد</strong></div><div><small>واگذار شده</small><strong>{number.format(data.checks.filter((check) => check.financialOpen && check.direction === "received" && check.currentHolderName !== "من").length)} مورد</strong></div></div>
               <SearchField value={checkSearch} onChange={setCheckSearch} placeholder="جست‌وجوی صیاد، بانک، طرف حساب یا بابت..." />
               <div className="filter-row"><button className={checkFilter === "active" ? "active" : ""} onClick={() => setCheckFilter("active")}>باز</button><button className={checkFilter === "received" ? "active" : ""} onClick={() => setCheckFilter("received")}>دریافتی</button><button className={checkFilter === "issued" ? "active" : ""} onClick={() => setCheckFilter("issued")}>پرداختی</button><button className={checkFilter === "closed" ? "active" : ""} onClick={() => setCheckFilter("closed")}>مختومه</button><button className={checkFilter === "all" ? "active" : ""} onClick={() => setCheckFilter("all")}>همه</button></div>
-              <div className="check-stack">{filteredChecks.map((check) => <CheckCard key={check.id} check={check} onEdit={() => openCheckForm(check)} onDelete={() => deleteCheck(check)} onStatus={(status) => updateCheckStatus(check, status)} onTransfer={() => openCheckTransfer(check)} onReturn={() => returnCheckToMe(check)} />)}{!filteredChecks.length && <EmptyState icon="check" title={data.checks.length ? "چکی مطابق فیلتر پیدا نشد" : "اولین چک را ثبت کن"} detail={data.checks.length ? "جست‌وجو یا فیلتر را تغییر بده." : "از کی گرفتی یا به کی دادی، مبلغ و سررسید را ثبت کن؛ بقیه جزئیات اختیاری است."} action={data.checks.length ? "نمایش همه" : "ثبت چک"} onAction={() => data.checks.length ? setCheckFilter("all") : openCheckForm()} />}</div>
+              <div className="check-stack">{filteredChecks.map((check) => <CheckCard key={check.id} check={check} onOpen={() => openTransactionDetail({ kind: "check", id: check.id })} onEdit={() => openCheckForm(check)} onDelete={() => deleteCheck(check)} onStatus={(status) => updateCheckStatus(check, status)} onTransfer={() => openCheckTransfer(check)} onReturn={() => returnCheckToMe(check)} />)}{!filteredChecks.length && <EmptyState icon="check" title={data.checks.length ? "چکی مطابق فیلتر پیدا نشد" : "اولین چک را ثبت کن"} detail={data.checks.length ? "جست‌وجو یا فیلتر را تغییر بده." : "از کی گرفتی یا به کی دادی، مبلغ و سررسید را ثبت کن؛ بقیه جزئیات اختیاری است."} action={data.checks.length ? "نمایش همه" : "ثبت چک"} onAction={() => data.checks.length ? setCheckFilter("all") : openCheckForm()} />}</div>
             </section>
           )}
 
@@ -677,7 +669,7 @@ export function FinanceApp() {
                 </button>
               </div>
               <div className="timeline">
-                {calendarDueItems.map((item) => <div className={`timeline-row ${item.completed ? "completed" : ""}`} key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} /></div>)}
+                {calendarDueItems.map((item) => <div className={`timeline-row ${item.completed ? "completed" : ""}`} key={item.id}><div className={`date-badge ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}><strong>{persianDate(item.date).split(" ")[0]}</strong><span>{persianDate(item.date).split(" ").slice(1).join(" ")}</span></div><DueItemRow item={item} compact onEntryToggle={() => item.source === "entry" && void post({ operation: "toggle_entry", id: item.entry.id }, { close: false })} onEntryEdit={() => item.source === "entry" && openEntry(item.entry.kind, item.entry)} onLoanPaid={() => item.source === "loan" && markInstallmentPaid(item.loan, item.installment)} onLoanPayment={() => item.source === "loan" && openLoanPayment(item.loan, item.installment)} onCheckOpen={() => item.source === "check" && openCheckForm(item.check)} onCheckClear={() => item.source === "check" && updateCheckStatus(item.check, "cleared")} onOpen={() => item.source === "entry" ? openTransactionDetail({ kind: "entry", id: item.entry.id }) : item.source === "check" ? openTransactionDetail({ kind: "check", id: item.check.id }) : openTransactionDetail({ kind: "loan-installment", loanId: item.loan.id, installmentId: item.installment.id })} /></div>)}
                 {!calendarDueItems.length && <EmptyState icon="calendar" title={hideCompletedDue && completedDueCount ? "همه کارهای این بازه انجام شده" : "برای این بازه سررسیدی نداری"} detail={hideCompletedDue && completedDueCount ? "برای دیدن موارد پرداخت‌شده و پاس‌شده، نمایش انجام‌شده‌ها را روشن کن." : "فیلتر ماه را عوض کن یا یک قسط، چک یا بدهی تاریخ‌دار ثبت کن."} action={dueRange === "current" ? "دیدن ماه بعد" : "نمایش همه"} onAction={() => setDueRange(dueRange === "current" ? "next" : "all")} />}
               </div>
             </section>
@@ -693,8 +685,8 @@ export function FinanceApp() {
         <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
       </nav>
 
-      {sheet && <div className="sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setSheet(null); }}>
-        <section className="bottom-sheet" role="dialog" aria-modal="true">
+      {sheet && <div className={`sheet-backdrop ${sheet === "transaction-detail" ? "detail-backdrop" : ""}`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSheet(null); }}>
+        <section className={`bottom-sheet ${sheet === "transaction-detail" ? "transaction-detail-sheet" : ""}`} role="dialog" aria-modal="true">
           <div className="sheet-handle" />
           <button className="sheet-close" onClick={() => setSheet(null)} aria-label="بستن">×</button>
           {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onCheck={() => openCheckForm()} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
@@ -703,7 +695,8 @@ export function FinanceApp() {
           {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
           {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
           {sheet === "settlement" && settlementDraft && <SettlementForm group={data?.groups.find((group) => group.id === settlementDraft.groupId)} draft={settlementDraft} onSubmit={submitSettlement} busy={busy} />}
-          {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} />}
+          {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} onOpenItem={openLedgerItem} />}
+          {sheet === "transaction-detail" && detailTarget && data && <TransactionDetailPage data={data} target={detailTarget} onClose={() => setSheet(null)} onOpenDetail={openTransactionDetail} onEditEntry={(entry) => openEntry(entry.kind, entry)} onDeleteEntry={(entry) => { setSheet(null); deleteEntry(entry); }} onToggleEntry={(entry) => void post({ operation: "toggle_entry", id: entry.id }, { close: false })} onEditCheck={openCheckForm} onDeleteCheck={(check) => { setSheet(null); deleteCheck(check); }} onCheckStatus={updateCheckStatus} onTransferCheck={openCheckTransfer} onReturnCheck={returnCheckToMe} onEditExpense={(groupId, expense) => openExpense(groupId, expense)} onDeleteExpense={(expense) => { setSheet(null); deleteExpense(expense); }} onDeleteSettlement={(id) => { setSheet(null); deleteSettlement(id); }} onAddLoanPayment={openLoanPayment} onDeleteLoanPayment={(id) => { setSheet(null); deleteLoanPayment(id); }} />}
           {sheet === "loan-form" && <LoanForm key={editingLoan?.id ?? "new-loan"} initialLoan={editingLoan} onSubmit={submitLoan} busy={busy} />}
           {sheet === "loan-payment" && paymentLoan && paymentInstallment && <LoanPaymentForm loan={paymentLoan} installment={paymentInstallment} onSubmit={submitLoanPayment} busy={busy} />}
           {sheet === "check-form" && <CheckForm key={editingCheck?.id ?? "new-check"} initialCheck={editingCheck} people={people} onSubmit={submitCheck} busy={busy} />}
@@ -723,21 +716,21 @@ function SearchField({ value, onChange, placeholder }: { value: string; onChange
   return <label className="search-field"><Icon name="search" size={17} /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /><span>{value && <button type="button" onClick={() => onChange("")} aria-label="پاک کردن جست‌وجو">×</button>}</span></label>;
 }
 
-function EntryRow({ entry, onToggle, onEdit, onDelete, compact = false }: { entry: Entry; onToggle: () => void; onEdit: () => void; onDelete: () => void; compact?: boolean }) {
+function EntryRow({ entry, onToggle, onEdit, onDelete, onOpen, compact = false }: { entry: Entry; onToggle: () => void; onEdit: () => void; onDelete: () => void; onOpen: () => void; compact?: boolean }) {
   const meta = entryMeta[entry.kind] ?? entryMeta.debt;
   return <article className={`entry-row ${entry.status === "paid" ? "paid" : ""} ${compact ? "compact" : ""}`}>
     <span className={`entry-icon ${meta.tone}`}><Icon name={meta.icon} /></span>
-    <div className="entry-copy"><strong>{entry.title}</strong><small>{entry.personName}{entry.dueDate ? ` • ${persianDate(entry.dueDate)}` : ""}</small></div>
-    <div className="entry-amount"><strong className={entry.direction === "receivable" ? "text-green" : "text-coral"}>{entry.direction === "receivable" ? "+" : "−"}{shortMoney(entry.amount)}</strong><div className="entry-actions"><button onClick={onToggle}>{entry.status === "paid" ? "بازگردانی" : "تسویه"}</button><button onClick={onEdit} aria-label="ویرایش"><Icon name="edit" size={13} /></button><button onClick={onDelete} aria-label="حذف"><Icon name="trash" size={13} /></button></div></div>
+    <button className="entry-copy entry-open-copy" onClick={onOpen}><strong>{entry.title}</strong><small>{entry.personName}{entry.dueDate ? ` • ${persianDate(entry.dueDate)}` : ""}{entry.receipt ? " • پیوست دارد" : ""}</small></button>
+    <div className="entry-amount"><strong className={entry.direction === "receivable" ? "text-green" : "text-coral"}>{entry.direction === "receivable" ? "+" : "−"}{shortMoney(entry.amount)}</strong><div className="entry-actions"><button className="detail-link" onClick={onOpen}>جزئیات</button><button onClick={onToggle}>{entry.status === "paid" ? "بازگردانی" : "تسویه"}</button><button onClick={onEdit} aria-label="ویرایش"><Icon name="edit" size={13} /></button><button onClick={onDelete} aria-label="حذف"><Icon name="trash" size={13} /></button></div></div>
   </article>;
 }
 
-function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPayment, onCheckOpen, onCheckClear, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPaid: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; compact?: boolean }) {
+function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPayment, onCheckOpen, onCheckClear, onOpen, compact = false }: { item: DueItem; onEntryToggle: () => void; onEntryEdit: () => void; onLoanPaid: () => void; onLoanPayment: () => void; onCheckOpen: () => void; onCheckClear: () => void; onOpen: () => void; compact?: boolean }) {
   const icon: IconName = item.source === "loan" ? (item.loan.providerType === "store" ? "store" : "bank") : item.source === "check" ? "check" : item.entry.kind === "check" ? "check" : item.entry.direction === "receivable" ? "receivable" : "debt";
   const positive = item.source === "check" ? item.check.direction === "received" : item.source === "entry" && item.entry.direction === "receivable";
   return <article className={`due-item-row ${compact ? "compact" : ""} ${item.overdue ? "overdue" : ""} ${item.completed ? "completed" : ""}`}>
     <span className={`due-source ${item.source}`}><Icon name={item.completed ? "calendar-check" : icon} size={16} /></span>
-    <div className="due-copy"><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></div>
+    <button className="due-copy due-open-copy" onClick={onOpen}><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date, true)}</small></button>
     <div className="due-amount">
       <strong className={item.completed ? "text-muted" : positive ? "text-green" : "text-coral"}>{positive ? "+" : "−"}{money(item.amount)}</strong>
       {item.completed
@@ -751,44 +744,28 @@ function DueItemRow({ item, onEntryToggle, onEntryEdit, onLoanPaid, onLoanPaymen
   </article>;
 }
 
-function CheckCard({ check, onEdit, onDelete, onStatus, onTransfer, onReturn }: { check: CheckRecord; onEdit: () => void; onDelete: () => void; onStatus: (status: CheckRecord["status"]) => void; onTransfer: () => void; onReturn: () => void }) {
+function CheckCard({ check, onOpen, onEdit, onDelete, onStatus, onTransfer, onReturn }: { check: CheckRecord; onOpen: () => void; onEdit: () => void; onDelete: () => void; onStatus: (status: CheckRecord["status"]) => void; onTransfer: () => void; onReturn: () => void }) {
   const stateTone = check.status === "bounced" ? "danger" : check.financialOpen ? "active" : "closed";
   const movementLabel = check.direction === "received"
     ? (check.currentHolderName === "من" ? `از ${check.counterpartyName} گرفتم • الان دست من` : `از ${check.counterpartyName} گرفتم • الان نزد ${check.currentHolderName}`)
     : `به ${check.currentHolderName || check.counterpartyName} دادم`;
-  const eventLabel = (type: CheckRecord["events"][number]["type"], event: CheckRecord["events"][number]) => {
-    if (type === "received") return `از ${event.fromName} گرفتم`;
-    if (type === "issued") return `به ${event.toName} دادم`;
-    if (type === "transferred") return `به ${event.toName} واگذار کردم`;
-    if (type === "cleared") return check.direction === "received" ? "وصول شد" : "پاس شد";
-    if (type === "bounced") return "برگشت خورد";
-    if (type === "returned") return event.toName === "من" ? `از ${event.fromName} دوباره دست من برگشت` : "عودت شد";
-    if (type === "cancelled") return "باطل شد";
-    return "دوباره در جریان قرار گرفت";
-  };
   return <article className={`check-card ${check.direction} ${stateTone}`}>
-    <div className="check-card-head"><span className="check-doc-icon"><Icon name="check" size={19} /></span><div><small>{check.direction === "received" ? "گرفتم" : "دادم"} • {check.bankName}</small><h3>{check.purpose}</h3><i>{movementLabel}</i></div><span className="check-card-actions"><button onClick={onEdit} aria-label="ویرایش چک"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف چک"><Icon name="trash" size={13} /></button></span></div>
+    <div className="check-card-head"><span className="check-doc-icon"><Icon name="check" size={19} /></span><button className="check-card-open" onClick={onOpen}><small>{check.direction === "received" ? "گرفتم" : "دادم"} • {check.bankName}</small><h3>{check.purpose}</h3><i>{movementLabel}{check.receipt ? " • پیوست دارد" : ""}</i></button><span className="check-card-actions"><button onClick={onEdit} aria-label="ویرایش چک"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف چک"><Icon name="trash" size={13} /></button></span></div>
     <div className="check-personal-summary"><div><small>مبلغ</small><strong className={check.direction === "received" ? "text-green" : "text-coral"}>{money(check.amount)}</strong></div><div><small>سررسید</small><strong className={check.overdue ? "text-coral" : ""}>{persianDate(check.dueDate, true)}</strong></div><span className={`check-status-pill ${stateTone}`}>{checkStatusLabel[check.status]}</span></div>
     {check.financialOpen && <div className="check-primary-actions">{check.direction === "received" && check.currentHolderName === "من" && <button onClick={onTransfer}>واگذار کردم</button>}{check.direction === "received" && check.currentHolderName !== "من" && <button className="soft" onClick={onReturn}>دوباره دست من برگشت</button>}<button className="success" onClick={() => onStatus("cleared")}>{check.direction === "received" ? "وصول شد" : "پاس شد"}</button><button className="danger" onClick={() => onStatus("bounced")}>برگشت خورد</button></div>}
-    <details className="check-details"><summary>جزئیات و مسیر چک <b>{number.format(check.events.length)} رویداد</b></summary>
-      <div className="check-parties"><span><small>از / طرف حساب</small><b>{check.counterpartyName}</b></span><span><small>صادرکننده</small><b>{check.issuerName}</b></span><span><small>الان دست کیه؟</small><b>{check.currentHolderName}</b></span>{check.transferorName && <span><small>واگذارکننده اولیه</small><b>{check.transferorName}</b></span>}</div>
-      <div className="check-meta-row"><span>صیاد: <b>{check.sayadId || "ثبت نشده"}</b></span><span>{sayadStatusLabel[check.sayadStatus]}</span>{check.branchName && <span>شعبه: <b>{check.branchName}</b></span>}{check.chequeNumber && <span>شماره: <b>{check.chequeNumber}</b></span>}<span>{check.countInBalance ? "در مانده حساب هست" : "فقط برای رهگیری"}</span></div>
-      {check.events.length > 0 && <div className="check-timeline">{check.events.map((event) => <div key={event.id}><span className="timeline-dot" /><div><strong>{eventLabel(event.type, event)}</strong><small>{persianDate(event.eventDate, true)}{event.note ? ` • ${event.note}` : ""}</small></div></div>)}</div>}
-      {check.note && <p className="check-note">{check.note}</p>}
-      {check.status !== "open" && <button className="reopen-check" onClick={() => onStatus("open")}>برگردان به جریان</button>}
-    </details>
+    <button className="check-detail-link" onClick={onOpen}><span>جزئیات و مسیر چک</span><b>{number.format(check.events.length)} رویداد ‹</b></button>
   </article>;
 }
 
-function LoanCard({ loan, onEdit, onDelete, onPayment, onDeletePayment }: { loan: Loan; onEdit: () => void; onDelete: () => void; onPayment: (installment: LoanInstallment) => void; onDeletePayment: (id: number) => void }) {
+function LoanCard({ loan, onEdit, onDelete, onPayment, onDeletePayment, onOpenInstallment, onOpenPayment }: { loan: Loan; onEdit: () => void; onDelete: () => void; onPayment: (installment: LoanInstallment) => void; onDeletePayment: (id: number) => void; onOpenInstallment: (installment: LoanInstallment) => void; onOpenPayment: (installment: LoanInstallment, payment: LoanPayment) => void }) {
   const progress = loan.totalPayable > 0 ? Math.min(100, Math.round((loan.totalPaid / loan.totalPayable) * 100)) : 0;
   const providerIcon: IconName = loan.providerType === "store" ? "store" : "bank";
   return <article className={`loan-card personal ${loan.remainingAmount === 0 ? "settled" : ""}`}>
     <div className="loan-card-head"><span className="loan-provider-icon"><Icon name={providerIcon} size={19} /></span><div><small>{loan.providerName}</small><h3>{loan.title}</h3><i>{number.format(loan.paidCount)} از {number.format(loan.installmentCount)} قسط پرداخت شده</i></div><span className="loan-card-actions"><button onClick={onEdit} aria-label="ویرایش"><Icon name="edit" size={13} /></button><button className="danger" onClick={onDelete} aria-label="حذف"><Icon name="trash" size={13} /></button></span></div>
-    {loan.nextInstallment ? <div className={`next-installment personal ${loan.nextInstallment.overdue ? "overdue" : ""}`}><div><small>{loan.nextInstallment.overdue ? "این قسط عقب افتاده" : "قسط بعدی"}</small><strong>{persianDate(loan.nextInstallment.dueDate, true)}</strong></div><b>{money(loan.nextInstallment.remainingAmount)}</b><button onClick={() => onPayment(loan.nextInstallment)}>پرداخت</button></div> : <div className="loan-settled-banner"><Icon name="calendar-check" size={16} /> همه اقساط پرداخت شده‌اند</div>}
+    {loan.nextInstallment ? <div className={`next-installment personal ${loan.nextInstallment.overdue ? "overdue" : ""}`}><button className="next-installment-open" onClick={() => onOpenInstallment(loan.nextInstallment)}><small>{loan.nextInstallment.overdue ? "این قسط عقب افتاده" : "قسط بعدی"}</small><strong>{persianDate(loan.nextInstallment.dueDate, true)}</strong></button><b>{money(loan.nextInstallment.remainingAmount)}</b><button onClick={() => onPayment(loan.nextInstallment)}>پرداخت</button></div> : <div className="loan-settled-banner"><Icon name="calendar-check" size={16} /> همه اقساط پرداخت شده‌اند</div>}
     <div className="loan-progress"><span><i style={{ width: `${progress}%` }} /></span><small>{number.format(progress)}٪ جلو رفته</small></div>
     <div className="loan-personal-stats"><span><small>مانده</small><strong className={loan.remainingAmount ? "text-coral" : "text-green"}>{loan.remainingAmount ? money(loan.remainingAmount) : "تمام شد"}</strong></span>{loan.overdueCount > 0 && <span className="danger"><small>عقب‌افتاده</small><strong>{number.format(loan.overdueCount)} قسط</strong></span>}</div>
-    <details className="loan-schedule personal"><summary><span>جزئیات و همه قسط‌ها</span><b>{number.format(loan.installmentCount)} نوبت</b></summary><div className="loan-extra"><div className="loan-money-grid"><div><small>کل</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong>{money(loan.remainingAmount)}</strong></div></div>{loan.contractNumber && <p className="loan-note">شماره قرارداد: {loan.contractNumber}</p>}{loan.financeCost > 0 && <p className="loan-finance-cost">اختلاف مبلغ پایه و کل پرداخت: <b>{money(loan.financeCost)}</b></p>}<div className="loan-installment-list">{loan.installments.map((installment) => <article key={installment.id} className={`${installment.status} ${installment.overdue ? "overdue" : ""}`}><span className="installment-number">{number.format(installment.number)}</span><div><strong>{persianDate(installment.dueDate, true)}</strong><small>{installment.status === "paid" ? "پرداخت شد" : installment.status === "partial" ? `بخشی پرداخت شده` : installment.overdue ? "عقب افتاده" : "هنوز نرسیده"}</small></div><b>{money(installment.remainingAmount || installment.amount)}</b>{installment.remainingAmount > 0 && <button onClick={() => onPayment(installment)}>پرداخت</button>}{installment.payments.length > 0 && <details className="installment-payments"><summary>{number.format(installment.payments.length)} پرداخت</summary><div>{installment.payments.map((payment) => <span key={payment.id}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}</i><b>{money(payment.amount)}</b>{payment.receipt && <button className="receipt-share icon-only" onClick={() => void shareReceipt(payment.receipt as ReceiptAttachment, `رسید قسط ${loan.title}`)} aria-label="ارسال رسید پرداخت"><Icon name="upload" size={11} /></button>}<button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div>{loan.note && <p className="loan-note">{loan.note}</p>}</div></details>
+    <details className="loan-schedule personal"><summary><span>همه قسط‌ها</span><b>{number.format(loan.installmentCount)} نوبت</b></summary><div className="loan-extra"><div className="loan-money-grid"><div><small>کل</small><strong>{money(loan.totalPayable)}</strong></div><div><small>پرداخت‌شده</small><strong className="text-green">{money(loan.totalPaid)}</strong></div><div><small>مانده</small><strong>{money(loan.remainingAmount)}</strong></div></div>{loan.contractNumber && <p className="loan-note">شماره قرارداد: {loan.contractNumber}</p>}{loan.financeCost > 0 && <p className="loan-finance-cost">اختلاف مبلغ پایه و کل پرداخت: <b>{money(loan.financeCost)}</b></p>}<div className="loan-installment-list">{loan.installments.map((installment) => <article key={installment.id} className={`${installment.status} ${installment.overdue ? "overdue" : ""}`}><span className="installment-number">{number.format(installment.number)}</span><button className="installment-copy" onClick={() => onOpenInstallment(installment)}><strong>{persianDate(installment.dueDate, true)}</strong><small>{installment.status === "paid" ? "پرداخت شد" : installment.status === "partial" ? "بخشی پرداخت شده" : installment.overdue ? "عقب افتاده" : "هنوز نرسیده"}</small></button><b>{money(installment.remainingAmount || installment.amount)}</b>{installment.remainingAmount > 0 && <button onClick={() => onPayment(installment)}>پرداخت</button>}{installment.payments.length > 0 && <details className="installment-payments"><summary>{number.format(installment.payments.length)} پرداخت</summary><div>{installment.payments.map((payment) => <span key={payment.id}><button className="payment-open" onClick={() => onOpenPayment(installment, payment)}><i>{persianDate(payment.paymentDate, true)}{payment.note ? ` • ${payment.note}` : ""}{payment.receipt ? " • پیوست" : ""}</i><b>{money(payment.amount)}</b></button><button onClick={() => onDeletePayment(payment.id)} aria-label="حذف پرداخت"><Icon name="trash" size={11} /></button></span>)}</div></details>}</article>)}</div>{loan.note && <p className="loan-note">{loan.note}</p>}</div></details>
   </article>;
 }
 
@@ -810,26 +787,27 @@ function PersonAccountCard({ account, onOpen, onDelete }: { account: PersonAccou
 
 function GroupPreview({ group, onClick }: { group: Group; onClick: () => void }) {
   return <button className="group-preview" onClick={onClick}>
-    <div className="group-preview-top"><span className="group-mark"><Icon name="users" size={19} /></span><div><strong>{group.name}</strong><small>{number.format(group.members.length)} نفر • {number.format(group.expenses.length)} خرید</small></div><b>{money(group.totalSpent)}</b></div>
+    <div className="group-preview-top"><span className="group-mark"><Icon name="users" size={19} /></span><div><strong>{group.name}</strong><small>{number.format(group.members.length)} نفر • {number.format(group.expenses.length + group.settlements.length)} تراکنش</small></div><b>{money(group.totalSpent)}</b></div>
     <div className="member-stack">{group.members.slice(0, 4).map((member) => <span key={member.personId} title={member.name}><Icon name="user" size={13} /></span>)}</div>
   </button>;
 }
 
-function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onEditExpense, onDeleteExpense, onSettlement, onManualSettlement, onDeleteSettlement }: { group: Group; onEditGroup: () => void; onDeleteGroup: () => void; onExpense: () => void; onEditExpense: (expense: Expense) => void; onDeleteExpense: (expense: Expense) => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onDeleteSettlement: (id: number) => void }) {
-  return <article className="group-card">
-    <div className="group-card-head"><div className="group-title"><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو فعال • جمع هزینه {money(group.totalSpent)}</p></div></div><div className="group-head-actions"><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></div></div>
-    <div className="balances-list">
-      {group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)} • سهم {money(balance.owed)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}
-    </div>
-    <div className="settlement-box"><div className="settlement-title"><strong>پیشنهاد تسویه</strong><small>{group.suggestions.length ? "بر اساس مانده فعلی" : "همه حساب‌ها تسویه‌اند"}</small></div>{group.suggestions.map((item) => <div className="settlement-row" key={`${item.fromPersonId}-${item.toPersonId}`}><p><span>{item.fromName}</span><i>←</i><span>{item.toName}</span><b>{money(item.amount)}</b></p><button onClick={() => onSettlement(item)}>ثبت تسویه</button></div>)}</div>
-    {group.settlements.length > 0 && <details className="settlement-history" open><summary><span><Icon name="settlement" size={15} />تاریخچه تسویه‌ها</span><b>{number.format(group.settlements.length)} مورد</b></summary><div>{group.settlements.map((settlement) => <article key={settlement.id}><span className="transaction-icon"><Icon name="settlement" size={15} /></span><div><strong>{settlement.fromName} به {settlement.toName} پرداخت کرد</strong><small>{persianDate(settlement.settlementDate)}{settlement.note ? ` • ${settlement.note}` : ""}</small></div><b>{money(settlement.amount)}</b><span className="receipt-row-actions">{settlement.receipt && <button className="receipt-share" onClick={() => void shareReceipt(settlement.receipt as ReceiptAttachment, `رسید تسویه ${group.name}`)}><Icon name="upload" size={12} /> ارسال رسید</button>}<button onClick={() => onDeleteSettlement(settlement.id)} aria-label="حذف تسویه"><Icon name="trash" size={13} /></button></span></article>)}</div></details>}
-    <details className="transaction-history" open>
-      <summary><span><Icon name="receipt" size={16} />ریز تراکنش‌ها</span><b>{number.format(group.expenses.length)} مورد</b></summary>
-      {group.expenses.length ? <div className="transaction-list">{group.expenses.map((expense) => <article className="expense-transaction" key={expense.id}>
-        <div className="expense-transaction-head"><span className="transaction-icon"><Icon name="receipt" size={16} /></span><div><strong>{expense.title}</strong><small>پرداخت توسط {expense.payerName} • {persianDate(expense.expenseDate)}</small></div><b>{money(expense.amount)}</b><span className="transaction-actions">{expense.receipt && <button className="receipt-share icon-only" onClick={() => void shareReceipt(expense.receipt as ReceiptAttachment, `رسید ${expense.title}`)} aria-label="ارسال رسید خرید"><Icon name="upload" size={13} /></button>}<button onClick={() => onEditExpense(expense)} aria-label="ویرایش خرید"><Icon name="edit" size={13} /></button><button onClick={() => onDeleteExpense(expense)} aria-label="حذف خرید"><Icon name="trash" size={13} /></button></span></div>
-        <div className="expense-share-list">{expense.shares.map((share) => <span key={share.personId} className={share.amount === 0 ? "zero-share" : ""}><small>{share.name} • وزن {number.format(share.weight)}</small><strong>{money(share.amount)}</strong></span>)}</div>
-      </article>)}</div> : <p className="no-transactions">هنوز خریدی در این گروه ثبت نشده است.</p>}
-    </details>
+function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onSettlement, onManualSettlement, onOpenTransaction }: { group: Group; onEditGroup: () => void; onDeleteGroup: () => void; onExpense: () => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onOpenTransaction: (target: TransactionDetailTarget) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const activity = [
+    ...group.expenses.map((expense) => ({ kind: "expense" as const, id: expense.id, date: expense.expenseDate, expense })),
+    ...group.settlements.map((settlement) => ({ kind: "settlement" as const, id: settlement.id, date: settlement.settlementDate, settlement })),
+  ].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  return <article className={`group-card ${expanded ? "expanded" : "collapsed"}`}>
+    <div className="group-card-head"><button className="group-title group-title-button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • {number.format(activity.length)} تراکنش • {money(group.totalSpent)}</p></div></button><div className="group-head-actions"><button className="group-collapse-toggle" onClick={() => setExpanded((current) => !current)}>{expanded ? "جمع کردن" : "باز کردن"} <b>{expanded ? "⌃" : "⌄"}</b></button>{expanded && <><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></>}</div></div>
+    {expanded && <div className="group-expanded-body">
+      <div className="balances-list">{group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)} • سهم {money(balance.owed)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}</div>
+      <div className="settlement-box"><div className="settlement-title"><strong>پیشنهاد تسویه</strong><small>{group.suggestions.length ? "بر اساس مانده فعلی" : "همه حساب‌ها تسویه‌اند"}</small></div>{group.suggestions.map((item) => <div className="settlement-row" key={`${item.fromPersonId}-${item.toPersonId}`}><p><span>{item.fromName}</span><i>←</i><span>{item.toName}</span><b>{money(item.amount)}</b></p><button onClick={() => onSettlement(item)}>ثبت تسویه</button></div>)}</div>
+      <section className="transaction-history unified-transaction-history">
+        <div className="transaction-history-head"><span><Icon name="receipt" size={16} /><strong>ریز تراکنش‌ها</strong></span><b>{number.format(activity.length)} مورد</b></div>
+        {activity.length ? <div className="transaction-list unified-transaction-list">{activity.map((item) => item.kind === "expense" ? <button className="group-transaction-row expense" key={`expense-${item.id}`} onClick={() => onOpenTransaction({ kind: "expense", groupId: group.id, id: item.expense.id })}><span className="transaction-icon"><Icon name="receipt" size={16} /></span><div><strong>{item.expense.title}</strong><small>خرید • پرداخت توسط {item.expense.payerName} • {persianDate(item.expense.expenseDate)}{item.expense.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.expense.amount)}</b><i>‹</i></button> : <button className="group-transaction-row settlement" key={`settlement-${item.id}`} onClick={() => onOpenTransaction({ kind: "settlement", groupId: group.id, id: item.settlement.id })}><span className="transaction-icon"><Icon name="settlement" size={16} /></span><div><strong>{item.settlement.fromName} به {item.settlement.toName} پرداخت کرد</strong><small>تسویه • {persianDate(item.settlement.settlementDate)}{item.settlement.note ? ` • ${item.settlement.note}` : ""}{item.settlement.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.settlement.amount)}</b><i>‹</i></button>)}</div> : <p className="no-transactions">هنوز تراکنشی در این گروه ثبت نشده است.</p>}
+      </section>
+    </div>}
   </article>;
 }
 
@@ -857,6 +835,7 @@ function EntryForm({ kind, people, initialEntry, onNeedPerson, onSubmit, busy }:
     <MoneyInput name="amount" label="مبلغ (تومان)" required defaultValue={initialEntry?.amount} placeholder="مثلاً ۲٬۵۰۰٬۰۰۰" />
     <JalaliDatePicker name="dueDate" label="تاریخ سررسید شمسی" optional initialValue={initialEntry?.dueDate ? isoToJalaliInput(initialEntry.dueDate) : ""} />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} defaultValue={initialEntry?.note ?? ""} placeholder="توضیح کوتاه..." /></label>
+    <AttachmentField label="پیوست / مدرک" initialAttachment={initialEntry?.receipt} />
     <SubmitButton busy={busy} label={initialEntry ? "ذخیره تغییرات" : `ثبت ${meta.label}`} />
   </form>;
 }
@@ -889,6 +868,7 @@ function CheckForm({ initialCheck, people, onSubmit, busy }: { initialCheck?: Ch
     <JalaliDatePicker name="dueDate" label="کی باید پاس بشه؟" required initialValue={initialCheck ? isoToJalaliInput(initialCheck.dueDate) : ""} />
     <label>کدوم بانک؟<input name="bankName" required defaultValue={initialCheck?.bankName ?? ""} placeholder="مثلاً بانک ملت" /></label>
     <label>شناسه صیاد <small>(اختیاری؛ بعداً هم می‌تونی اضافه کنی)</small><input name="sayadId" inputMode="numeric" maxLength={16} defaultValue={initialCheck?.sayadId ?? ""} placeholder="۱۶ رقم" /></label>
+    <AttachmentField label="پیوست چک / مدرک" initialAttachment={initialCheck?.receipt} />
     <details className="advanced-fields"><summary>جزئیات بیشتر <small>اختیاری</small></summary><div>
       <label className="balance-effect-toggle"><input type="checkbox" name="countInBalance" defaultChecked={initialCheck?.countInBalance ?? true} /><span><strong>این چک خودش روی حساب اثر بگذارد</strong><small>اگر بدهی یا طلبش را قبلاً جدا ثبت کردی، خاموشش کن.</small></span></label>
       <div className="check-two-cols"><label>نوع چک<select name="checkType" value={checkType} onChange={(event) => setCheckType(event.target.value as CheckRecord["checkType"])}><option value="sayadi">صیادی</option><option value="guaranteed">تضمین‌شده بانکی</option><option value="other">سایر / قدیمی</option></select></label><label>شعبه<input name="branchName" defaultValue={initialCheck?.branchName ?? ""} placeholder="اختیاری" /></label></div>
@@ -963,7 +943,7 @@ function LoanPaymentForm({ loan, installment, onSubmit, busy }: { loan: Loan; in
     <MoneyInput name="amount" label="مبلغ پرداختی (تومان)" required defaultValue={installment.remainingAmount} placeholder="مبلغ پرداخت" />
     <JalaliDatePicker name="paymentDate" label="تاریخ پرداخت" defaultToday required />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً پرداخت اینترنتی، شماره پیگیری..." /></label>
-    <ReceiptField label="رسید پرداخت" />
+    <AttachmentField label="پیوست / مدرک پرداخت" />
     <p className="form-hint">پرداخت جزئی هم مجاز است. تا وقتی مجموع پرداخت‌ها به مبلغ قسط نرسد، قسط باز باقی می‌ماند.</p>
     <SubmitButton busy={busy} label="ثبت پرداخت" />
   </form>;
@@ -1030,7 +1010,7 @@ function ExpenseForm({ groups, selectedGroup, initialExpense, onGroupChange, onS
     <label>بابت چه چیزی؟<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder="مثلاً خرید سوپرمارکت" /></label>
     <MoneyInput name="amount" label="مبلغ کل (تومان)" required defaultValue={initialExpense?.amount} placeholder="مثلاً ۱٬۸۵۰٬۰۰۰" />
     <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday={!initialExpense} required initialValue={initialExpense ? isoToJalaliInput(initialExpense.expenseDate) : ""} />
-    <ReceiptField label="رسید خرید" initialReceipt={initialExpense?.receipt} />
+    <AttachmentField label="پیوست / مدرک خرید" initialAttachment={initialExpense?.receipt} />
     {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><div className="participant-share"><span>سهم</span><ShareStepper label={`سهم خرید ${member.name}`} value={weight} onChange={(value) => setWeights({ ...weights, [member.personId]: value })} /></div></div>; })}</div>}
     <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
     <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
@@ -1046,21 +1026,89 @@ function SettlementForm({ group, draft, onSubmit, busy }: { group?: Group; draft
     <MoneyInput name="amount" label="مبلغ تسویه (تومان)" required defaultValue={draft.amount} placeholder="مثلاً ۵۰۰٬۰۰۰" />
     <JalaliDatePicker name="settlementDate" label="تاریخ تسویه شمسی" defaultToday required />
     <label>یادداشت <small>(اختیاری)</small><textarea name="note" rows={2} placeholder="مثلاً کارت‌به‌کارت" /></label>
-    <ReceiptField label="رسید تسویه" />
+    <AttachmentField label="پیوست / مدرک تسویه" />
     <p className="form-hint">این پرداخت در تاریخچه همین گروه می‌ماند؛ حتی اگر هیچ‌کدام از دو طرف «من» نباشند.</p>
     <SubmitButton busy={busy} label="ثبت تسویه واقعی" />
   </form>;
 }
 
-function PersonLedgerSheet({ account, onEditEntry }: { account: PersonAccount; onEditEntry: (entryId: number) => void }) {
+function PersonLedgerSheet({ account, onEditEntry, onOpenItem }: { account: PersonAccount; onEditEntry: (entryId: number) => void; onOpenItem: (item: PersonAccount["items"][number]) => void }) {
   return <div className="person-ledger-sheet"><div className="sheet-title"><p>همه منابع مالی این شخص نسبت به من</p><h2>{account.name}</h2></div>
     <div className={`final-balance-card ${account.finalBalance >= 0 ? "positive" : "negative"}`}><small>مانده نهایی</small><strong>{account.finalBalance === 0 ? "تسویه" : balanceLabel(account.finalBalance)}</strong></div>
     <div className="account-summary-grid three"><div><small>ثبت مستقیم</small><strong className={account.directBalance >= 0 ? "text-green" : "text-coral"}>{account.directBalance >= 0 ? "+" : "−"}{money(Math.abs(account.directBalance))}</strong></div><div><small>چک‌ها</small><strong className={account.checkBalance >= 0 ? "text-green" : "text-coral"}>{account.checkBalance >= 0 ? "+" : "−"}{money(Math.abs(account.checkBalance))}</strong></div><div><small>اثر دُنگ‌ها</small><strong className={account.dongBalance >= 0 ? "text-green" : "text-coral"}>{account.dongBalance >= 0 ? "+" : "−"}{money(Math.abs(account.dongBalance))}</strong></div></div>
     {account.groups.length > 0 && <div className="group-impact-list"><strong>تفکیک دُنگ‌ها</strong>{account.groups.map((impact) => <span key={impact.groupId}><i>{impact.groupName}</i><b className={impact.balance >= 0 ? "text-green" : "text-coral"}>{impact.balance >= 0 ? "+" : "−"}{money(Math.abs(impact.balance))}</b></span>)}</div>}
     <div className="section-title ledger-sheet-title"><h2>گردش کامل</h2><span>{number.format(account.items.length)} مورد</span></div>
-    <div className="person-ledger-list">{account.items.map((item) => <article key={item.id} className={item.status === "paid" ? "ledger-item paid" : "ledger-item"}><span className={`ledger-source ${item.source}`}><Icon name={item.source === "entry" ? "book" : item.source === "check" ? "check" : item.source === "expense" ? "receipt" : "settlement"} size={15} /></span><div><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date)}</small></div><b className={item.effect >= 0 ? "text-green" : "text-coral"}>{item.status === "paid" ? "تسویه‌شده" : `${item.effect >= 0 ? "+" : "−"}${money(Math.abs(item.effect))}`}</b>{item.source === "entry" && <button onClick={() => onEditEntry(item.sourceId)} aria-label="ویرایش ثبت"><Icon name="edit" size={13} /></button>}</article>)}</div>
+    <div className="person-ledger-list">{account.items.map((item) => <article key={item.id} className={item.status === "paid" ? "ledger-item paid" : "ledger-item"}><span className={`ledger-source ${item.source}`}><Icon name={item.source === "entry" ? "book" : item.source === "check" ? "check" : item.source === "expense" ? "receipt" : "settlement"} size={15} /></span><button className="ledger-item-open" onClick={() => onOpenItem(item)}><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date)}</small></button><b className={item.effect >= 0 ? "text-green" : "text-coral"}>{item.status === "paid" ? "تسویه‌شده" : `${item.effect >= 0 ? "+" : "−"}${money(Math.abs(item.effect))}`}</b>{item.source === "entry" && <button onClick={() => onEditEntry(item.sourceId)} aria-label="ویرایش ثبت"><Icon name="edit" size={13} /></button>}</article>)}</div>
     {!account.items.length && <div className="member-picker-empty"><Icon name="book" size={24} /><strong>هنوز گردش مالی ندارد</strong><small>ثبت مستقیم یا دُنگی که به تو مربوط باشد اینجا دیده می‌شود.</small></div>}
   </div>;
+}
+
+function DetailRows({ rows }: { rows: Array<[string, string]> }) {
+  return <div className="transaction-detail-grid">{rows.filter(([, value]) => value).map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>;
+}
+
+function TransactionDetailShell({ category, title, amount, tone, date, status, receipt, attachment, onClose, children, actions }: { category: string; title: string; amount: number; tone: "positive" | "negative" | "neutral"; date: string; status: string; receipt: TransactionReceiptData; attachment?: ReceiptAttachment | null; onClose: () => void; children: ReactNode; actions?: ReactNode }) {
+  return <div className="transaction-detail-page">
+    <div className="transaction-detail-nav"><button onClick={onClose}>‹ برگشت</button><span>جزئیات تراکنش</span></div>
+    <section className={`transaction-detail-hero ${tone}`}><small>{category}</small><h2>{title}</h2><strong>{money(amount)}</strong><div><span>{date}</span><b>{status}</b></div></section>
+    <div className="transaction-detail-share"><button className="primary" onClick={() => void shareTransactionReceipt(receipt)}><Icon name="upload" size={16} /> ارسال رسید این تراکنش</button>{attachment && <button onClick={() => void shareAttachment(attachment, `پیوست ${title}`)}><Icon name="receipt" size={16} /> ارسال پیوست</button>}</div>
+    {attachment && <div className="attachment-summary"><Icon name="receipt" size={16} /><div><strong>پیوست ذخیره‌شده</strong><small>{attachment.fileName} • {number.format(Math.max(1, Math.round(attachment.size / 1024)))} کیلوبایت</small></div></div>}
+    {children}
+    {actions && <div className="transaction-detail-actions">{actions}</div>}
+    <p className="generated-receipt-hint">«ارسال رسید» یک تصویر مرتب از اطلاعات همین تراکنش می‌سازد. پیوست، مدرک جداگانه‌ای است که خودت قبلاً اضافه کرده‌ای.</p>
+  </div>;
+}
+
+function TransactionDetailPage({ data, target, onClose, onOpenDetail, onEditEntry, onDeleteEntry, onToggleEntry, onEditCheck, onDeleteCheck, onCheckStatus, onTransferCheck, onReturnCheck, onEditExpense, onDeleteExpense, onDeleteSettlement, onAddLoanPayment, onDeleteLoanPayment }: { data: FinanceData; target: TransactionDetailTarget; onClose: () => void; onOpenDetail: (target: TransactionDetailTarget) => void; onEditEntry: (entry: Entry) => void; onDeleteEntry: (entry: Entry) => void; onToggleEntry: (entry: Entry) => void; onEditCheck: (check: CheckRecord) => void; onDeleteCheck: (check: CheckRecord) => void; onCheckStatus: (check: CheckRecord, status: CheckRecord["status"]) => void; onTransferCheck: (check: CheckRecord) => void; onReturnCheck: (check: CheckRecord) => void; onEditExpense: (groupId: number, expense: Expense) => void; onDeleteExpense: (expense: Expense) => void; onDeleteSettlement: (id: number) => void; onAddLoanPayment: (loan: Loan, installment: LoanInstallment) => void; onDeleteLoanPayment: (id: number) => void }) {
+  if (target.kind === "entry") {
+    const entry = data.entries.find((item) => item.id === target.id);
+    if (!entry) return <div className="form-empty"><Icon name="book" size={28} /><h2>این تراکنش پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const category = entry.direction === "receivable" ? "طلب" : "بدهی";
+    const receipt: TransactionReceiptData = { reference: `E-${entry.id}`, category, title: entry.title, amount: entry.amount, date: persianDate(entry.createdAt.slice(0, 10), true), status: entry.status === "paid" ? "تسویه‌شده" : "باز", direction: entry.direction === "receivable" ? "positive" : "negative", fields: [{ label: "طرف حساب", value: entry.personName }, { label: "سررسید", value: entry.dueDate ? persianDate(entry.dueDate, true) : "بدون سررسید" }], note: entry.note };
+    return <TransactionDetailShell category={category} title={entry.title} amount={entry.amount} tone={entry.direction === "receivable" ? "positive" : "negative"} date={receipt.date} status={receipt.status} receipt={receipt} attachment={entry.receipt} onClose={onClose} actions={<><button onClick={() => onEditEntry(entry)}><Icon name="edit" size={14} /> ویرایش</button><button onClick={() => onToggleEntry(entry)}>{entry.status === "paid" ? "بازگردانی به باز" : "ثبت تسویه"}</button><button className="danger" onClick={() => onDeleteEntry(entry)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["طرف حساب", entry.personName], ["نوع", category], ["تاریخ ثبت", receipt.date], ["سررسید", entry.dueDate ? persianDate(entry.dueDate, true) : "بدون سررسید"], ["وضعیت", receipt.status]]} />{entry.note && <div className="transaction-note"><small>یادداشت</small><p>{entry.note}</p></div>}</TransactionDetailShell>;
+  }
+
+  if (target.kind === "check") {
+    const check = data.checks.find((item) => item.id === target.id);
+    if (!check) return <div className="form-empty"><Icon name="check" size={28} /><h2>این چک پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const category = check.direction === "received" ? "چک دریافتی" : "چک پرداختی";
+    const receipt: TransactionReceiptData = { reference: `C-${check.id}`, category, title: check.purpose, amount: check.amount, date: persianDate(check.issueDate || check.createdAt.slice(0, 10), true), status: checkStatusLabel[check.status], direction: check.direction === "received" ? "positive" : "negative", fields: [{ label: "طرف حساب", value: check.counterpartyName }, { label: "بانک", value: check.bankName }, { label: "سررسید", value: persianDate(check.dueDate, true) }, { label: "دارنده فعلی", value: check.currentHolderName }, { label: "شناسه صیاد", value: check.sayadId || "ثبت نشده" }], note: check.note };
+    return <TransactionDetailShell category={category} title={check.purpose} amount={check.amount} tone={check.direction === "received" ? "positive" : "negative"} date={receipt.date} status={receipt.status} receipt={receipt} attachment={check.receipt} onClose={onClose} actions={<><button onClick={() => onEditCheck(check)}><Icon name="edit" size={14} /> ویرایش</button>{check.financialOpen && check.direction === "received" && check.currentHolderName === "من" && <button onClick={() => onTransferCheck(check)}>واگذار کردم</button>}{check.financialOpen && check.direction === "received" && check.currentHolderName !== "من" && <button onClick={() => onReturnCheck(check)}>برگشت دست من</button>}{check.financialOpen && <button onClick={() => onCheckStatus(check, "cleared")}>{check.direction === "received" ? "وصول شد" : "پاس شد"}</button>}{check.financialOpen && <button className="danger-soft" onClick={() => onCheckStatus(check, "bounced")}>برگشت خورد</button>}{check.status !== "open" && <button onClick={() => onCheckStatus(check, "open")}>برگردان به جریان</button>}<button className="danger" onClick={() => onDeleteCheck(check)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["طرف حساب", check.counterpartyName], ["بانک", check.bankName], ["شعبه", check.branchName], ["سررسید", persianDate(check.dueDate, true)], ["تاریخ صدور", check.issueDate ? persianDate(check.issueDate, true) : "ثبت نشده"], ["صادرکننده", check.issuerName], ["ذی‌نفع", check.beneficiaryName], ["دارنده فعلی", check.currentHolderName], ["واگذارکننده اولیه", check.transferorName], ["شناسه صیاد", check.sayadId || "ثبت نشده"], ["شماره چک", check.chequeNumber || "ثبت نشده"], ["وضعیت صیاد", sayadStatusLabel[check.sayadStatus]], ["اثر روی مانده", check.countInBalance ? "محاسبه می‌شود" : "فقط برای رهگیری"]]} />{check.events.length > 0 && <section className="detail-timeline"><h3>مسیر چک</h3><div className="check-timeline">{check.events.map((event) => <div key={event.id}><span className="timeline-dot" /><div><strong>{event.type === "received" ? `از ${event.fromName} گرفتم` : event.type === "issued" ? `به ${event.toName} دادم` : event.type === "transferred" ? `به ${event.toName} واگذار شد` : event.type === "cleared" ? "پاس / وصول شد" : event.type === "bounced" ? "برگشت خورد" : event.type === "returned" ? `از ${event.fromName} برگشت` : event.type === "cancelled" ? "باطل شد" : "دوباره در جریان قرار گرفت"}</strong><small>{persianDate(event.eventDate, true)}{event.note ? ` • ${event.note}` : ""}</small></div></div>)}</div></section>}{check.note && <div className="transaction-note"><small>یادداشت</small><p>{check.note}</p></div>}</TransactionDetailShell>;
+  }
+
+  if (target.kind === "expense") {
+    const group = data.groups.find((item) => item.id === target.groupId);
+    const expense = group?.expenses.find((item) => item.id === target.id);
+    if (!group || !expense) return <div className="form-empty"><Icon name="receipt" size={28} /><h2>این خرید پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const sharesSummary = expense.shares.filter((share) => share.amount > 0).map((share) => `${share.name}: ${money(share.amount)}`).join(" • ");
+    const receipt: TransactionReceiptData = { reference: `D-${group.id}-${expense.id}`, category: "خرید دُنگی", title: expense.title, amount: expense.amount, date: persianDate(expense.expenseDate, true), status: "ثبت‌شده", direction: "neutral", fields: [{ label: "گروه", value: group.name }, { label: "پرداخت‌کننده", value: expense.payerName }, { label: "تقسیم", value: sharesSummary }] };
+    return <TransactionDetailShell category="خرید دُنگی" title={expense.title} amount={expense.amount} tone="neutral" date={receipt.date} status="ثبت‌شده" receipt={receipt} attachment={expense.receipt} onClose={onClose} actions={<><button onClick={() => onEditExpense(group.id, expense)}><Icon name="edit" size={14} /> ویرایش</button><button className="danger" onClick={() => onDeleteExpense(expense)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["گروه", group.name], ["پرداخت‌کننده", expense.payerName], ["تاریخ خرید", persianDate(expense.expenseDate, true)], ["تعداد افراد دارای سهم", `${number.format(expense.shares.filter((share) => share.amount > 0).length)} نفر`]]} /><section className="detail-share-list"><h3>سهم افراد</h3>{expense.shares.map((share) => <div key={share.personId} className={share.amount === 0 ? "zero" : ""}><span>{share.name}<small>وزن {number.format(share.weight)}</small></span><strong>{money(share.amount)}</strong></div>)}</section></TransactionDetailShell>;
+  }
+
+  if (target.kind === "settlement") {
+    const group = data.groups.find((item) => item.id === target.groupId);
+    const settlement = group?.settlements.find((item) => item.id === target.id);
+    if (!group || !settlement) return <div className="form-empty"><Icon name="settlement" size={28} /><h2>این تسویه پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const title = `${settlement.fromName} به ${settlement.toName}`;
+    const receipt: TransactionReceiptData = { reference: `S-${group.id}-${settlement.id}`, category: "تسویه دُنگ", title, amount: settlement.amount, date: persianDate(settlement.settlementDate, true), status: "انجام‌شده", direction: "neutral", fields: [{ label: "گروه", value: group.name }, { label: "پرداخت‌کننده", value: settlement.fromName }, { label: "دریافت‌کننده", value: settlement.toName }], note: settlement.note };
+    return <TransactionDetailShell category="تسویه دُنگ" title={title} amount={settlement.amount} tone="neutral" date={receipt.date} status="انجام‌شده" receipt={receipt} attachment={settlement.receipt} onClose={onClose} actions={<button className="danger" onClick={() => onDeleteSettlement(settlement.id)}><Icon name="trash" size={14} /> حذف تسویه</button>}><DetailRows rows={[["گروه", group.name], ["پرداخت‌کننده", settlement.fromName], ["دریافت‌کننده", settlement.toName], ["تاریخ تسویه", persianDate(settlement.settlementDate, true)]]} />{settlement.note && <div className="transaction-note"><small>یادداشت</small><p>{settlement.note}</p></div>}</TransactionDetailShell>;
+  }
+
+  const loan = data.loans.find((item) => item.id === target.loanId);
+  const installment = loan?.installments.find((item) => item.id === target.installmentId);
+  if (!loan || !installment) return <div className="form-empty"><Icon name="installment" size={28} /><h2>این قسط پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+
+  if (target.kind === "loan-payment") {
+    const payment = installment.payments.find((item) => item.id === target.paymentId);
+    if (!payment) return <div className="form-empty"><Icon name="installment" size={28} /><h2>این پرداخت پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const title = `پرداخت قسط ${number.format(installment.number)} • ${loan.title}`;
+    const receipt: TransactionReceiptData = { reference: `P-${loan.id}-${payment.id}`, category: "پرداخت قسط", title, amount: payment.amount, date: persianDate(payment.paymentDate, true), status: "پرداخت ثبت‌شده", direction: "negative", fields: [{ label: "بانک / فروشگاه", value: loan.providerName }, { label: "قسط", value: `${number.format(installment.number)} از ${number.format(loan.installmentCount)}` }, { label: "سررسید", value: persianDate(installment.dueDate, true) }], note: payment.note };
+    return <TransactionDetailShell category="پرداخت قسط" title={title} amount={payment.amount} tone="negative" date={receipt.date} status="پرداخت ثبت‌شده" receipt={receipt} attachment={payment.receipt} onClose={onClose} actions={<button className="danger" onClick={() => onDeleteLoanPayment(payment.id)}><Icon name="trash" size={14} /> حذف پرداخت</button>}><DetailRows rows={[["بانک / فروشگاه", loan.providerName], ["قرارداد", loan.title], ["شماره قسط", `${number.format(installment.number)} از ${number.format(loan.installmentCount)}`], ["سررسید", persianDate(installment.dueDate, true)], ["تاریخ پرداخت", persianDate(payment.paymentDate, true)]]} />{payment.note && <div className="transaction-note"><small>یادداشت</small><p>{payment.note}</p></div>}</TransactionDetailShell>;
+  }
+
+  const installmentStatus = installment.status === "paid" ? "پرداخت‌شده" : installment.status === "partial" ? "بخشی پرداخت‌شده" : installment.overdue ? "عقب‌افتاده" : "باز";
+  const installmentReceipt: TransactionReceiptData = { reference: `I-${loan.id}-${installment.id}`, category: "قسط", title: loan.title, amount: installment.amount, date: persianDate(installment.dueDate, true), status: installmentStatus, direction: "negative", fields: [{ label: "بانک / فروشگاه", value: loan.providerName }, { label: "شماره قسط", value: `${number.format(installment.number)} از ${number.format(loan.installmentCount)}` }, { label: "پرداخت‌شده", value: money(installment.paidAmount) }, { label: "مانده", value: money(installment.remainingAmount) }] };
+  return <TransactionDetailShell category="قسط" title={loan.title} amount={installment.amount} tone="negative" date={installmentReceipt.date} status={installmentStatus} receipt={installmentReceipt} onClose={onClose} actions={installment.remainingAmount > 0 ? <button onClick={() => onAddLoanPayment(loan, installment)}>ثبت پرداخت</button> : undefined}><DetailRows rows={[["بانک / فروشگاه", loan.providerName], ["شماره قسط", `${number.format(installment.number)} از ${number.format(loan.installmentCount)}`], ["سررسید", persianDate(installment.dueDate, true)], ["مبلغ قسط", money(installment.amount)], ["پرداخت‌شده", money(installment.paidAmount)], ["مانده", money(installment.remainingAmount)], ["وضعیت", installmentStatus]]} />{installment.payments.length > 0 && <section className="detail-payment-list"><h3>پرداخت‌های این قسط</h3>{installment.payments.map((payment) => <button key={payment.id} onClick={() => onOpenDetail({ kind: "loan-payment", loanId: loan.id, installmentId: installment.id, paymentId: payment.id })}><span><strong>{persianDate(payment.paymentDate, true)}</strong><small>{payment.note || (payment.receipt ? "پیوست دارد" : "جزئیات پرداخت")}</small></span><b>{money(payment.amount)} ‹</b></button>)}</section>}</TransactionDetailShell>;
 }
 
 function ToolsSheet({ onExport, onImport, busy }: { onExport: () => void; onImport: (file: File) => void; busy: boolean }) {
@@ -1068,8 +1116,8 @@ function ToolsSheet({ onExport, onImport, busy }: { onExport: () => void; onImpo
   return <div><div className="sheet-title"><p>اطلاعات روی همین مرورگر ذخیره می‌شوند</p><h2>پشتیبان و بازیابی</h2></div><div className="tools-list"><button onClick={onExport}><span className="tool-icon"><Icon name="download" /></span><div><strong>دریافت نسخه پشتیبان</strong><small>همه اشخاص، ثبت‌ها، دُنگ‌ها، وام‌ها، چک‌ها و تاریخچه حرکتشان، برنامه اقساط و پرداخت‌ها در یک فایل JSON</small></div></button><button disabled={busy} onClick={() => inputRef.current?.click()}><span className="tool-icon"><Icon name="upload" /></span><div><strong>بازیابی نسخه پشتیبان</strong><small>اطلاعات فعلی این دستگاه با فایل انتخاب‌شده جایگزین می‌شود</small></div></button></div><input ref={inputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImport(file); event.currentTarget.value = ""; }} /><p className="backup-warning">نسخه پشتیبان را در جای امن نگه دار. پاک کردن داده‌های مرورگر می‌تواند دفتر محلی را حذف کند.</p></div>;
 }
 
-function ReceiptField({ label, initialReceipt }: { label: string; initialReceipt?: ReceiptAttachment | null }) {
-  return <label className="receipt-field"><span>{label} <small>(اختیاری)</small></span><input name="receipt" type="file" accept="image/*,application/pdf" /><small>{initialReceipt ? `رسید فعلی: ${initialReceipt.fileName} • انتخاب فایل جدید جایگزینش می‌کند` : "عکس یا PDF تا ۵ مگابایت • روی همین دستگاه ذخیره می‌شود"}</small></label>;
+function AttachmentField({ label, initialAttachment }: { label: string; initialAttachment?: ReceiptAttachment | null }) {
+  return <label className="receipt-field attachment-field"><span>{label} <small>(اختیاری)</small></span><input name="receipt" type="file" accept="image/*,application/pdf" /><small>{initialAttachment ? `پیوست فعلی: ${initialAttachment.fileName} • انتخاب فایل جدید جایگزینش می‌کند` : "عکس یا PDF تا ۵ مگابایت • روی همین دستگاه ذخیره می‌شود"}</small></label>;
 }
 
 function MoneyInput({ name, label, required = false, defaultValue, placeholder, onValueChange }: { name: string; label: string; required?: boolean; defaultValue?: number; placeholder?: string; onValueChange?: (value: number) => void }) {
