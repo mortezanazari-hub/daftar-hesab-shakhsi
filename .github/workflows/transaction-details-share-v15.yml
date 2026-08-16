@@ -1,0 +1,57 @@
+name: Validate transaction details and sharing
+
+on:
+  push:
+    branches:
+      - agent/transaction-details-share-v15
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/transaction-details-share-v15
+          fetch-depth: 0
+
+      - name: Apply v15 changes
+        run: python .v15_apply.py
+
+      - name: Verify intended behavior
+        run: |
+          grep -F 'type TransactionDetailTarget' app/FinanceApp.tsx
+          grep -F 'ارسال رسید این تراکنش' app/FinanceApp.tsx
+          grep -F 'const activity = [' app/FinanceApp.tsx
+          grep -F '...group.settlements.map' app/FinanceApp.tsx
+          grep -F 'function AttachmentField' app/FinanceApp.tsx
+          grep -F 'receipt: ReceiptAttachment | null' app/local-db.ts
+          grep -F 'shareTransactionReceipt' app/transaction-share.ts
+          grep -F 'daftar-hesab-offline-v13' public/sw.js
+          ! grep -F 'className="settlement-history"' app/FinanceApp.tsx
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production build
+        run: npm run static:build
+
+      - name: Run regression tests
+        run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
+
+      - name: Commit validated product files
+        shell: bash
+        run: |
+          rm .v15_apply.py .github/workflows/transaction-details-share-v15.yml
+          git config user.name "Morteza Nazari"
+          git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
+          git add app/FinanceApp.tsx app/local-db.ts app/globals.css app/transaction-share.ts public/sw.js tests/rendered-html.test.mjs .v15_apply.py .github/workflows/transaction-details-share-v15.yml
+          git commit -m "Add transaction detail pages and shareable receipts"
+          git push origin HEAD:agent/transaction-details-share-v15
