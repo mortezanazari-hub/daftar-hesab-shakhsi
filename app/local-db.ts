@@ -1,6 +1,6 @@
 export type Person = { id: number; name: string; phone: string; isSelf: boolean; color: string };
 export type ReceiptAttachment = { fileName: string; mimeType: string; size: number; dataUrl: string };
-export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
+export type Entry = { id: number; personId: number; personName: string; kind: string; direction: string; title: string; amount: number; dueDate: string | null; status: string; note: string; createdAt: string; receipt: ReceiptAttachment | null; role: "obligation" | "settlement"; settlesEntryId: number | null; settledByEntryId: number | null; transactionDate: string | null };
 export type LoanPayment = { id: number; loanId: number; installmentId: number; amount: number; paymentDate: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
 export type LoanInstallment = { id: number; loanId: number; number: number; dueDate: string; amount: number; paidAmount: number; remainingAmount: number; status: "open" | "partial" | "paid"; overdue: boolean; payments: LoanPayment[] };
 export type Loan = { id: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; financedAmount: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string; installments: LoanInstallment[]; totalPaid: number; remainingAmount: number; paidCount: number; overdueCount: number; paymentCount: number; financeCost: number; nextInstallment: LoanInstallment | null };
@@ -29,6 +29,7 @@ export type PersonLedgerItem = {
   amount: number;
   effect: number;
   status?: string;
+  entryRole?: "obligation" | "settlement";
 };
 export type PersonGroupImpact = { groupId: number; groupName: string; balance: number };
 export type PersonAccount = { personId: number; name: string; phone: string; color: string; directBalance: number; checkBalance: number; dongBalance: number; finalBalance: number; groups: PersonGroupImpact[]; items: PersonLedgerItem[] };
@@ -55,7 +56,7 @@ export type FinanceBackup = {
 };
 
 type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
-type StoredEntry = Omit<Entry, "id" | "personName" | "receipt"> & { id?: number; receipt?: ReceiptAttachment | null };
+type StoredEntry = Omit<Entry, "id" | "personName" | "receipt" | "role" | "settlesEntryId" | "settledByEntryId" | "transactionDate"> & { id?: number; role?: "obligation" | "settlement"; settlesEntryId?: number | null; transactionDate?: string | null; receipt?: ReceiptAttachment | null };
 type StoredGroup = { id?: number; name: string; createdAt: string };
 type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
 type StoredExpense = Omit<Expense, "id" | "payerName" | "shares" | "receipt"> & { id?: number; groupId: number; createdAt: string; receipt?: ReceiptAttachment | null };
@@ -231,19 +232,30 @@ function buildPersonAccounts(persons: Person[], entries: Entry[], groups: Group[
   return persons.filter((person) => !person.isSelf).map((person) => {
     const directEntries = entries.filter((entry) => entry.personId === person.id);
     const directBalance = directEntries
-      .filter((entry) => entry.status === "open")
+      .filter((entry) => entry.role === "obligation" && entry.status === "open")
       .reduce((sum, entry) => sum + (entry.direction === "receivable" ? entry.amount : -entry.amount), 0);
-    const items: PersonLedgerItem[] = directEntries.map((entry) => ({
-      id: `entry-${entry.id}`,
-      source: "entry",
-      sourceId: entry.id,
-      title: entry.title,
-      detail: `${entry.direction === "receivable" ? "طلب مستقیم" : "بدهی مستقیم"}${entry.dueDate ? ` • سررسید ${entry.dueDate}` : ""}`,
-      date: entry.createdAt.slice(0, 10),
-      amount: entry.amount,
-      effect: entry.status === "open" ? (entry.direction === "receivable" ? entry.amount : -entry.amount) : 0,
-      status: entry.status,
-    }));
+    const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
+    const items: PersonLedgerItem[] = directEntries.map((entry) => {
+      const settlement = entry.settledByEntryId ? entryMap.get(entry.settledByEntryId) : undefined;
+      const source = entry.settlesEntryId ? entryMap.get(entry.settlesEntryId) : undefined;
+      const isSettlement = entry.role === "settlement";
+      return {
+        id: `entry-${entry.id}`,
+        source: "entry",
+        sourceId: entry.id,
+        title: entry.title,
+        detail: isSettlement
+          ? `${entry.direction === "receivable" ? "دریافت تسویه" : "پرداخت تسویه"}${source ? ` • برای «${source.title}»` : ""}`
+          : `${entry.direction === "receivable" ? "طلب مستقیم" : "بدهی مستقیم"}${entry.dueDate ? ` • سررسید ${entry.dueDate}` : ""}${settlement ? ` • تسویه با تراکنش #${settlement.id}` : ""}`,
+        date: entry.transactionDate ?? entry.createdAt.slice(0, 10),
+        amount: entry.amount,
+        effect: isSettlement
+          ? (entry.direction === "receivable" ? entry.amount : -entry.amount)
+          : entry.status === "open" ? (entry.direction === "receivable" ? entry.amount : -entry.amount) : 0,
+        status: isSettlement ? "settlement" : entry.status,
+        entryRole: entry.role,
+      };
+    });
 
     const personChecks = checks.filter((check) => check.relatedPersonId === person.id);
     const checkBalance = personChecks.filter((check) => check.countInBalance && check.financialOpen).reduce((sum, check) => sum + (check.direction === "received" ? check.amount : -check.amount), 0);
@@ -379,9 +391,24 @@ export async function getFinanceData(): Promise<FinanceData> {
     .map(({ id, name, phone, isSelf, color }) => ({ id, name, phone, isSelf, color }))
     .sort((a, b) => Number(b.isSelf) - Number(a.isSelf) || a.name.localeCompare(b.name, "fa"));
   const names = new Map(persons.map((person) => [person.id, person.name]));
-  const entries = storedEntries
-    .map((entry) => ({ ...entry, personName: names.get(entry.personId) ?? "نامشخص", receipt: entry.receipt ?? null }))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id);
+  const settlementBySource = new Map<number, number>();
+  for (const entry of storedEntries) {
+    if (entry.settlesEntryId) settlementBySource.set(entry.settlesEntryId, entry.id);
+  }
+  const entries: Entry[] = storedEntries
+    .map((entry) => {
+      const role: Entry["role"] = entry.role === "settlement" || entry.settlesEntryId ? "settlement" : "obligation";
+      return {
+        ...entry,
+        personName: names.get(entry.personId) ?? "نامشخص",
+        receipt: entry.receipt ?? null,
+        role,
+        settlesEntryId: entry.settlesEntryId ?? null,
+        settledByEntryId: role === "obligation" ? settlementBySource.get(entry.id) ?? null : null,
+        transactionDate: entry.transactionDate ?? null,
+      };
+    })
+    .sort((a, b) => (b.transactionDate ?? b.createdAt.slice(0, 10)).localeCompare(a.transactionDate ?? a.createdAt.slice(0, 10)) || b.id - a.id);
   const groups = storedGroups
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
     .map((group) => {
@@ -516,29 +543,91 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     if (id) {
       const current = await requestResult(store.get(id)) as StoredEntry | undefined;
       if (!current) throw new Error("ثبت موردنظر پیدا نشد.");
-      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400), receipt: receipt ?? current.receipt ?? null });
+      if (current.role === "settlement" || current.settlesEntryId) throw new Error("تراکنش تسویه از صفحه تراکنش اصلی مدیریت می‌شود و قابل تبدیل به بدهی/طلب نیست.");
+      store.put({ ...current, id, personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, note: cleanText(payload.note, 400), receipt: receipt ?? current.receipt ?? null, role: "obligation", settlesEntryId: null, transactionDate: current.transactionDate ?? null });
     } else {
-      store.add({ personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, status: "open", note: cleanText(payload.note, 400), createdAt: new Date().toISOString(), receipt } satisfies StoredEntry);
+      store.add({ personId, kind, direction, title, amount, dueDate: cleanText(payload.dueDate, 10) || null, status: "open", note: cleanText(payload.note, 400), createdAt: new Date().toISOString(), receipt, role: "obligation", settlesEntryId: null, transactionDate: null } satisfies StoredEntry);
     }
     await transactionDone(transaction);
     return;
   }
 
-  if (operation === "toggle_entry") {
+  if (operation === "settle_entry" || operation === "toggle_entry") {
     const id = positiveInteger(payload.id, "شناسه");
+    const entries = await all<StoredEntry & { id: number }>(db, "entries");
+    const entry = entries.find((item) => item.id === id);
+    if (!entry) throw new Error("ثبت موردنظر پیدا نشد.");
+    if (entry.role === "settlement" || entry.settlesEntryId) throw new Error("خود تراکنش تسویه دوباره تسویه نمی‌شود.");
+
+    const linkedSettlements = entries.filter((item) => item.settlesEntryId === id);
+    if (operation === "toggle_entry" && entry.status !== "open") {
+      const transaction = db.transaction("entries", "readwrite");
+      const store = transaction.objectStore("entries");
+      for (const settlement of linkedSettlements) store.delete(settlement.id);
+      store.put({ ...entry, id, status: "open", role: entry.role ?? "obligation", settlesEntryId: null, transactionDate: entry.transactionDate ?? null });
+      await transactionDone(transaction);
+      return;
+    }
+
+    if (entry.status !== "open") throw new Error("این بدهی/طلب قبلاً تسویه شده است.");
+    if (linkedSettlements.length) throw new Error("برای این ثبت قبلاً تراکنش تسویه ساخته شده است.");
+    const settlementDate = cleanText(payload.settlementDate, 10) ? cleanIsoDate(payload.settlementDate, "تاریخ تسویه") : currentLocalIsoDate();
+    const receipt = payload.receipt ? cleanReceipt(payload.receipt) : null;
+    const now = new Date().toISOString();
     const transaction = db.transaction("entries", "readwrite");
     const store = transaction.objectStore("entries");
-    const entry = await requestResult(store.get(id)) as StoredEntry | undefined;
+    store.put({ ...entry, id, status: "paid", role: entry.role ?? "obligation", settlesEntryId: null, transactionDate: entry.transactionDate ?? null });
+    store.add({
+      personId: entry.personId,
+      kind: "settlement",
+      direction: entry.direction,
+      title: `${entry.direction === "receivable" ? "دریافت" : "پرداخت"} بابت «${entry.title}»`,
+      amount: entry.amount,
+      dueDate: null,
+      status: "paid",
+      note: cleanText(payload.note, 400),
+      createdAt: now,
+      receipt,
+      role: "settlement",
+      settlesEntryId: id,
+      transactionDate: settlementDate,
+    } satisfies StoredEntry);
+    await transactionDone(transaction);
+    return;
+  }
+
+  if (operation === "reopen_entry") {
+    const id = positiveInteger(payload.id, "شناسه");
+    const entries = await all<StoredEntry & { id: number }>(db, "entries");
+    const entry = entries.find((item) => item.id === id);
     if (!entry) throw new Error("ثبت موردنظر پیدا نشد.");
-    store.put({ ...entry, id, status: entry.status === "open" ? "paid" : "open" });
+    if (entry.role === "settlement" || entry.settlesEntryId) throw new Error("برای بازگردانی، تراکنش اصلی بدهی/طلب را باز کن.");
+    const transaction = db.transaction("entries", "readwrite");
+    const store = transaction.objectStore("entries");
+    for (const settlement of entries.filter((item) => item.settlesEntryId === id)) store.delete(settlement.id);
+    store.put({ ...entry, id, status: "open", role: entry.role ?? "obligation", settlesEntryId: null, transactionDate: entry.transactionDate ?? null });
     await transactionDone(transaction);
     return;
   }
 
   if (operation === "delete_entry") {
     const id = positiveInteger(payload.id, "شناسه");
+    const entries = await all<StoredEntry & { id: number }>(db, "entries");
+    const entry = entries.find((item) => item.id === id);
+    if (!entry) return;
     const transaction = db.transaction("entries", "readwrite");
-    transaction.objectStore("entries").delete(id);
+    const store = transaction.objectStore("entries");
+    if (entry.role === "settlement" || entry.settlesEntryId) {
+      const sourceId = entry.settlesEntryId;
+      if (sourceId) {
+        const source = entries.find((item) => item.id === sourceId);
+        if (source) store.put({ ...source, id: sourceId, status: "open", role: source.role ?? "obligation", settlesEntryId: null, transactionDate: source.transactionDate ?? null });
+      }
+      store.delete(id);
+    } else {
+      for (const settlement of entries.filter((item) => item.settlesEntryId === id)) store.delete(settlement.id);
+      store.delete(id);
+    }
     await transactionDone(transaction);
     return;
   }

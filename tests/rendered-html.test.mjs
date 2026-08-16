@@ -178,7 +178,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -313,7 +313,7 @@ test("distinguishes user attachments from app-generated transaction receipts", a
   assert.match(app, /ارسال رسید این تراکنش/);
   assert.match(app, /ارسال پیوست/);
   assert.match(css, /\.transaction-detail-share/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
 });
 
 test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
@@ -367,5 +367,28 @@ test("keeps mobile person/group layouts readable and exports complete PDF report
   const groupFix = css.lastIndexOf(".group-card-head > .group-title-button");
   assert.ok(ledgerFix > legacyLedgerButton);
   assert.ok(groupFix > legacyGroupButton);
-  assert.match(serviceWorker, /daftar-hesab-offline-v14/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
+});
+
+
+test("direct debt and receivable settlements create linked counterpart transactions", async () => {
+  const [app, localDb, serviceWorker] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+  ]);
+  assert.match(localDb, /role: "obligation" \| "settlement"/);
+  assert.match(localDb, /settlesEntryId/);
+  assert.match(localDb, /settledByEntryId/);
+  assert.match(localDb, /operation === "settle_entry"/);
+  assert.match(localDb, /kind: "settlement"/);
+  assert.match(localDb, /operation === "reopen_entry"/);
+  assert.match(localDb, /item\.settlesEntryId === id/);
+  assert.match(app, /DirectEntrySettlementForm/);
+  assert.match(app, /ثبت تراکنش تسویه/);
+  assert.match(app, /تراکنش تسویه‌کننده/);
+  assert.match(app, /بدهی \/ طلب اصلی/);
+  assert.match(app, /handleEntrySettlement\(entry\)/);
+  assert.doesNotMatch(app, /onToggleEntry=\{\(entry\) => void post\(\{ operation: "toggle_entry"/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
 });
