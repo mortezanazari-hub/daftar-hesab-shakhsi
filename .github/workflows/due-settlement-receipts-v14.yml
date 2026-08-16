@@ -1,0 +1,54 @@
+name: Validate overdue filters and receipt tracking
+
+on:
+  push:
+    branches:
+      - agent/due-settlement-receipts-v14
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/due-settlement-receipts-v14
+          fetch-depth: 0
+
+      - name: Apply v14 changes
+        run: python .v14_apply.py
+
+      - name: Verify intended behavior
+        run: |
+          grep -F 'dueRange === "overdue"' app/FinanceApp.tsx
+          grep -F 'تاریخچه تسویه‌ها' app/FinanceApp.tsx
+          grep -F 'function ReceiptField' app/FinanceApp.tsx
+          grep -F 'export type ReceiptAttachment' app/local-db.ts
+          grep -F 'receipt: cleanReceipt(payload.receipt)' app/local-db.ts
+          grep -F 'daftar-hesab-offline-v12' public/sw.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production build
+        run: npm run static:build
+
+      - name: Run regression tests
+        run: node --test tests/jalali.test.mjs tests/rendered-html.test.mjs
+
+      - name: Commit validated product files
+        shell: bash
+        run: |
+          rm .v14_apply.py .github/workflows/due-settlement-receipts-v14.yml
+          git config user.name "Morteza Nazari"
+          git config user.email "150770823+mortezanazari-hub@users.noreply.github.com"
+          git add app/FinanceApp.tsx app/local-db.ts app/globals.css public/sw.js tests/rendered-html.test.mjs .v14_apply.py .github/workflows/due-settlement-receipts-v14.yml
+          git commit -m "Track overdue items and payment receipts"
+          git push origin HEAD:agent/due-settlement-receipts-v14
