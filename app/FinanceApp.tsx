@@ -35,6 +35,28 @@ type TransactionDetailTarget =
   | { kind: "settlement"; groupId: number; id: number }
   | { kind: "loan-installment"; loanId: number; installmentId: number }
   | { kind: "loan-payment"; loanId: number; installmentId: number; paymentId: number };
+
+type AppHistorySnapshot = {
+  tab: Tab;
+  sheet: Sheet;
+  entryKind: string;
+  editingEntryId: number | null;
+  settlingEntryId: number | null;
+  editingExpenseId: number | null;
+  editingGroupId: number | null;
+  editingLoanId: number | null;
+  editingCheckId: number | null;
+  transferCheckId: number | null;
+  paymentLoanId: number | null;
+  paymentInstallmentId: number | null;
+  selectedPersonId: number | null;
+  expenseGroupId: number | null;
+  settlementDraft: SettlementDraft | null;
+  detailTarget: TransactionDetailTarget | null;
+};
+
+type AppBrowserHistoryState = { __daftarApp: true; snapshot: AppHistorySnapshot };
+
 type DueItem =
   | { id: string; source: "entry"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; entry: Entry }
   | { id: string; source: "loan"; date: string; title: string; detail: string; amount: number; overdue: boolean; completed: boolean; completionLabel: string; loan: Loan; installment: LoanInstallment }
@@ -121,6 +143,15 @@ export function FinanceApp() {
   const [checkFilter, setCheckFilter] = useState<"active" | "received" | "issued" | "closed" | "all">("active");
   const [dueRange, setDueRange] = useState<"overdue" | "current" | "next" | "all">("current");
   const [hideCompletedDue, setHideCompletedDue] = useState(false);
+  const historyReadyRef = useRef(false);
+  const restoringHistoryRef = useRef(false);
+  const lastHistoryKeyRef = useRef("");
+
+  const appHistorySnapshot = useMemo<AppHistorySnapshot>(() => ({
+    tab, sheet, entryKind, editingEntryId, settlingEntryId, editingExpenseId, editingGroupId, editingLoanId, editingCheckId,
+    transferCheckId, paymentLoanId, paymentInstallmentId, selectedPersonId, expenseGroupId, settlementDraft, detailTarget,
+  }), [tab, sheet, entryKind, editingEntryId, settlingEntryId, editingExpenseId, editingGroupId, editingLoanId, editingCheckId, transferCheckId, paymentLoanId, paymentInstallmentId, selectedPersonId, expenseGroupId, settlementDraft, detailTarget]);
+  const appHistoryKey = useMemo(() => JSON.stringify(appHistorySnapshot), [appHistorySnapshot]);
 
   const load = useCallback(async () => {
     try {
@@ -137,6 +168,52 @@ export function FinanceApp() {
   useEffect(() => {
     if (location.hostname !== "localhost" && "serviceWorker" in navigator) void navigator.serviceWorker.register("./sw.js");
   }, []);
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state as AppBrowserHistoryState | null;
+      if (!state?.__daftarApp || !state.snapshot) return;
+      const snapshot = state.snapshot;
+      restoringHistoryRef.current = true;
+      setTab(snapshot.tab);
+      setSheet(snapshot.sheet);
+      setEntryKind(snapshot.entryKind);
+      setEditingEntryId(snapshot.editingEntryId);
+      setSettlingEntryId(snapshot.settlingEntryId);
+      setEditingExpenseId(snapshot.editingExpenseId);
+      setEditingGroupId(snapshot.editingGroupId);
+      setEditingLoanId(snapshot.editingLoanId);
+      setEditingCheckId(snapshot.editingCheckId);
+      setTransferCheckId(snapshot.transferCheckId);
+      setPaymentLoanId(snapshot.paymentLoanId);
+      setPaymentInstallmentId(snapshot.paymentInstallmentId);
+      setSelectedPersonId(snapshot.selectedPersonId);
+      setExpenseGroupId(snapshot.expenseGroupId);
+      setSettlementDraft(snapshot.settlementDraft);
+      setDetailTarget(snapshot.detailTarget);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    if (!historyReadyRef.current) {
+      const currentState = typeof window.history.state === "object" && window.history.state ? window.history.state : {};
+      window.history.replaceState({ ...currentState, __daftarApp: true, snapshot: appHistorySnapshot } satisfies AppBrowserHistoryState, "");
+      historyReadyRef.current = true;
+      lastHistoryKeyRef.current = appHistoryKey;
+      return;
+    }
+    if (restoringHistoryRef.current) {
+      restoringHistoryRef.current = false;
+      lastHistoryKeyRef.current = appHistoryKey;
+      return;
+    }
+    if (lastHistoryKeyRef.current === appHistoryKey) return;
+    window.history.pushState({ __daftarApp: true, snapshot: appHistorySnapshot } satisfies AppBrowserHistoryState, "");
+    lastHistoryKeyRef.current = appHistoryKey;
+  }, [data, appHistoryKey, appHistorySnapshot]);
 
   const people = data?.persons.filter((person) => !person.isSelf) ?? [];
   const linkedReceivable = data?.accounts.filter((account) => account.finalBalance > 0).reduce((sum, account) => sum + account.finalBalance, 0) ?? 0;
@@ -244,13 +321,23 @@ export function FinanceApp() {
     setError("");
     try {
       await applyFinanceOperation(payload);
-      if (close) setSheet(null);
+      if (close) dismissSheet();
       await load();
     } catch (postError) {
       setError(postError instanceof Error ? postError.message : "خطا در ثبت اطلاعات");
     } finally {
       setBusy(false);
     }
+  }
+
+  function dismissSheet() {
+    if (!sheet) return;
+    const state = window.history.state as AppBrowserHistoryState | null;
+    if (state?.__daftarApp && state.snapshot?.sheet === sheet) {
+      window.history.back();
+      return;
+    }
+    setSheet(null);
   }
 
   function openEntry(kind: string, entry?: Entry) {
@@ -719,10 +806,10 @@ export function FinanceApp() {
         <NavButton active={tab === "calendar"} icon="calendar" label="سررسید" onClick={() => setTab("calendar")} />
       </nav>
 
-      {sheet && <div className={`sheet-backdrop ${sheet === "transaction-detail" ? "detail-backdrop" : ""}`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSheet(null); }}>
+      {sheet && <div className={`sheet-backdrop ${sheet === "transaction-detail" ? "detail-backdrop" : ""}`} onMouseDown={(event) => { if (event.currentTarget === event.target) dismissSheet(); }}>
         <section className={`bottom-sheet ${sheet === "transaction-detail" ? "transaction-detail-sheet" : ""}`} role="dialog" aria-modal="true">
           <div className="sheet-handle" />
-          <button className="sheet-close" onClick={() => setSheet(null)} aria-label="بستن">×</button>
+          <button className="sheet-close" onClick={dismissSheet} aria-label="بستن">×</button>
           {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onCheck={() => openCheckForm()} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}

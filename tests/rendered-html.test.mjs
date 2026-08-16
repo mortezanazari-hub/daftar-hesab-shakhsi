@@ -178,7 +178,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v16/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -313,7 +313,7 @@ test("distinguishes user attachments from app-generated transaction receipts", a
   assert.match(app, /ارسال رسید این تراکنش/);
   assert.match(app, /ارسال پیوست/);
   assert.match(css, /\.transaction-detail-share/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v16/);
 });
 
 test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
@@ -367,7 +367,7 @@ test("keeps mobile person/group layouts readable and exports complete PDF report
   const groupFix = css.lastIndexOf(".group-card-head > .group-title-button");
   assert.ok(ledgerFix > legacyLedgerButton);
   assert.ok(groupFix > legacyGroupButton);
-  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v16/);
 });
 
 
@@ -390,5 +390,24 @@ test("direct debt and receivable settlements create linked counterpart transacti
   assert.match(app, /بدهی \/ طلب اصلی/);
   assert.match(app, /handleEntrySettlement\(entry\)/);
   assert.doesNotMatch(app, /onToggleEntry=\{\(entry\) => void post\(\{ operation: "toggle_entry"/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v15/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v16/);
+});
+
+
+test("uses browser history so the phone Back button moves one screen back before leaving the app", async () => {
+  const [app, serviceWorker] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+  ]);
+  assert.match(app, /type AppHistorySnapshot/);
+  assert.match(app, /type AppBrowserHistoryState/);
+  assert.match(app, /window\.history\.replaceState/);
+  assert.match(app, /window\.history\.pushState/);
+  assert.match(app, /window\.addEventListener\("popstate", handlePopState\)/);
+  assert.match(app, /if \(!state\?\.__daftarApp \|\| !state\.snapshot\) return/);
+  assert.match(app, /function dismissSheet\(\)/);
+  assert.match(app, /window\.history\.back\(\)/);
+  assert.match(app, /onClick=\{dismissSheet\}/);
+  assert.match(app, /if \(close\) dismissSheet\(\)/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v16/);
 });
