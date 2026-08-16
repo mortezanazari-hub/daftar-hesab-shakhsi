@@ -169,7 +169,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /چک‌های من/);
   assert.match(app, /گرفتم، دادم، واگذار کردم/);
   assert.match(app, /واگذار کردم/);
-  assert.match(app, /الان دست کیه/);
+  assert.match(app, /دارنده فعلی/);
   assert.match(app, /جزئیات و مسیر چک/);
   assert.match(app, /چک رو به کی دادم/);
   assert.match(app, /این چک تا وقتی پاس شود از لیست پیگیری حذف نمی‌شود/);
@@ -177,7 +177,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v12/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v13/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -292,25 +292,48 @@ test("filters overdue due items separately from current and next Jalali months",
   assert.match(app, /overdueDueCount/);
 });
 
-test("keeps dong settlements visible and stores shareable local receipts for real payments", async () => {
-  const [app, localDb, css, serviceWorker] = await Promise.all([
+test("distinguishes user attachments from app-generated transaction receipts", async () => {
+  const [app, localDb, shareModule, css, serviceWorker] = await Promise.all([
     readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
     readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("app/transaction-share.ts", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
     readFile(new URL("public/sw.js", root), "utf8"),
   ]);
   assert.match(localDb, /export type ReceiptAttachment/);
-  assert.match(localDb, /receipt: ReceiptAttachment \| null/);
-  assert.match(localDb, /cleanReceipt\(payload\.receipt\)/);
-  assert.match(localDb, /receipt: settlement\.receipt \?\? null/);
-  assert.match(app, /function ReceiptField/);
-  assert.match(app, /async function shareReceipt/);
-  assert.match(app, /name="receipt" type="file"/);
-  assert.match(app, /className="settlement-history" open/);
-  assert.match(app, /تاریخچه تسویه‌ها/);
-  assert.match(app, /ارسال رسید/);
-  assert.match(app, /رسید پرداخت/);
-  assert.match(app, /رسید خرید/);
-  assert.match(css, /\.receipt-field/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v12/);
+  assert.match(localDb, /export type Entry = .*receipt: ReceiptAttachment \| null/);
+  assert.match(localDb, /export type CheckRecord = .*receipt: ReceiptAttachment \| null/);
+  assert.match(app, /function AttachmentField/);
+  assert.match(app, /پیوست \/ مدرک/);
+  assert.match(app, /پیوست چک \/ مدرک/);
+  assert.match(shareModule, /export async function shareAttachment/);
+  assert.match(shareModule, /export async function shareTransactionReceipt/);
+  assert.match(shareModule, /جایگزین رسید بانکی نیست/);
+  assert.match(app, /ارسال رسید این تراکنش/);
+  assert.match(app, /ارسال پیوست/);
+  assert.match(css, /\.transaction-detail-share/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v13/);
+});
+
+test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /type TransactionDetailTarget/);
+  assert.match(app, /"loan-payment"/);
+  assert.match(app, /"loan-installment"/);
+  assert.match(app, /function TransactionDetailPage/);
+  assert.match(app, /جزئیات تراکنش/);
+  assert.match(app, /className="transaction-detail-sheet"|transaction-detail-sheet/);
+  assert.match(app, /const \[expanded, setExpanded\] = useState\(false\)/);
+  assert.match(app, /const activity = \[/);
+  assert.match(app, /\.\.\.group\.expenses\.map/);
+  assert.match(app, /\.\.\.group\.settlements\.map/);
+  assert.match(app, /ریز تراکنش‌ها/);
+  assert.doesNotMatch(app, /className="settlement-history"/);
+  assert.doesNotMatch(app, /تاریخچه تسویه‌ها/);
+  assert.match(css, /\.group-card\.collapsed/);
+  assert.match(css, /\.unified-transaction-list/);
+  assert.match(css, /\.transaction-detail-page/);
 });
