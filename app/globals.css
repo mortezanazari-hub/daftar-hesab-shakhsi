@@ -108,6 +108,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .expense-cta { width: 100%; border: 0; border-radius: 20px; padding: 14px 15px; display: flex; align-items: center; gap: 12px; text-align: right; color: #fff; background: var(--green); box-shadow: 0 14px 30px rgba(49,93,76,.17); cursor: pointer; }
 .expense-plus { width: 41px; height: 41px; display: grid; place-items: center; border-radius: 14px; background: rgba(255,255,255,.15); font-size: 23px; }.expense-cta > span:nth-child(2) { display: flex; flex-direction: column; gap: 4px; flex: 1; }.expense-cta strong { font-size: 12px; }.expense-cta small { color: rgba(255,255,255,.65); font-size: 9px; }.expense-cta b { font-size: 24px; }
+.group-entry-ctas { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.expense-cta.income-cta { background: #39758a; box-shadow: 0 14px 30px rgba(57,117,138,.17); }
 .groups-stack { margin-top: 15px; display: flex; flex-direction: column; gap: 14px; }
 .group-card { padding: 16px; }
 .group-card-head { display: flex; justify-content: space-between; align-items: center; }.group-title { display: flex; gap: 10px; align-items: center; }.group-title h3 { margin: 0 0 5px; font-size: 14px; }.group-title p { margin: 0; color: var(--muted); font-size: 9px; }.group-card-head > button { border: 0; border-radius: 10px; padding: 7px 9px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 800; cursor: pointer; }
@@ -261,6 +263,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .person-ledger-list { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .ledger-item { min-height: 64px; padding: 8px 9px; border-bottom: 1px solid #ece7df; display: grid; grid-template-columns: 32px 1fr auto 27px; align-items: center; gap: 7px; }.ledger-item:last-child { border-bottom: 0; }.ledger-item.paid { opacity: .6; }
 .ledger-source { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; }.ledger-source.entry { color: var(--violet); background: var(--violet-soft); }.ledger-source.expense { color: var(--green); background: var(--green-soft); }.ledger-source.settlement { color: #8a6c3d; background: #eee3ce; }
+.ledger-source.income { color: #39758a; background: #dcecf1; }
 .ledger-item > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }.ledger-item > div strong { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.ledger-item > div small { color: var(--muted); font-size: 7px; line-height: 1.6; }.ledger-item > b { font-size: 8px; white-space: nowrap; }.ledger-item > button { width: 25px; height: 25px; border: 0; border-radius: 7px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); cursor: pointer; }
 
 .tools-list { display: flex; flex-direction: column; gap: 8px; }.tools-list > button { min-height: 74px; padding: 11px; border: 1px solid var(--line); border-radius: 17px; display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 10px; text-align: right; background: #fcfaf6; cursor: pointer; }.tools-list > button:disabled { opacity: .55; }.tool-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); }.tools-list > button > div { display: flex; flex-direction: column; gap: 4px; }.tools-list strong { font-size: 10px; }.tools-list small { color: var(--muted); font-size: 8px; line-height: 1.6; }.hidden-file-input { display: none !important; }.backup-warning { margin: 13px 2px 0; padding: 10px; border-radius: 12px; color: #87652e; background: var(--amber-soft); font-size: 8px; line-height: 1.8; }
@@ -624,6 +627,13 @@ textarea {
 .group-transaction-row > b { white-space: nowrap; }
 .group-transaction-row > i { color: var(--muted); font-style: normal; }
 .group-transaction-row.settlement .transaction-icon { color: var(--green); background: var(--green-soft); }
+.group-transaction-row.income .transaction-icon { color: #39758a; background: #dcecf1; }
+.group-transaction-row.income > b { color: #39758a; }
+.group-card-head .group-head-actions .income-action { color: #39758a; background: #dcecf1; }
+
+@media (max-width: 560px) {
+  .group-entry-ctas { grid-template-columns: 1fr; }
+}
 
 .detail-backdrop { align-items: stretch; padding: 0; }
 .transaction-detail-sheet { width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 0; overflow: hidden; }

@@ -465,19 +465,21 @@ export async function sharePersonLedgerPdf(account: PersonAccount) {
 export async function shareGroupPdf(group: Group) {
   await readyFonts();
   const painter = new ReportPainter(`گروه دُنگی ${group.name}`);
-  painter.hero("جمع خریدهای مشترک", money(group.totalSpent), "neutral");
+  painter.hero("گردش مالی مشترک", `خرج ${money(group.totalSpent)} • درآمد ${money(group.totalIncome)}`, "neutral");
   painter.stats([
     { label: "اعضا", value: `${faNumber.format(group.members.length)} نفر` },
     { label: "خریدها", value: `${faNumber.format(group.expenses.length)} مورد` },
+    { label: "درآمدها", value: `${faNumber.format(group.incomes.length)} مورد` },
     { label: "تسویه‌ها", value: `${faNumber.format(group.settlements.length)} مورد` },
-    { label: "کل تراکنش‌ها", value: `${faNumber.format(group.expenses.length + group.settlements.length)} مورد` },
+    { label: "کل تراکنش‌ها", value: `${faNumber.format(group.expenses.length + group.incomes.length + group.settlements.length)} مورد` },
   ]);
 
   painter.section("مانده اعضا", `${faNumber.format(group.balances.length)} نفر`);
-  group.balances.forEach((balance) => painter.row(balance.name, `خرج کرده ${money(balance.paid)} • سهم ${money(balance.owed)}`, balance.balance === 0 ? "تسویه" : `${money(Math.abs(balance.balance))} ${balance.balance > 0 ? "بستانکار" : "بدهکار"}`, balance.balance > 0 ? "positive" : balance.balance < 0 ? "negative" : "neutral"));
+  group.balances.forEach((balance) => painter.row(balance.name, `خرج: پرداخت ${money(balance.paid)} / سهم ${money(balance.owed)} • درآمد: دریافت ${money(balance.received)} / سهم ${money(balance.earned)}`, balance.balance === 0 ? "تسویه" : `${money(Math.abs(balance.balance))} ${balance.balance > 0 ? "بستانکار" : "بدهکار"}`, balance.balance > 0 ? "positive" : balance.balance < 0 ? "negative" : "neutral"));
 
   const activity = [
     ...group.expenses.map((expense) => ({ kind: "expense" as const, id: expense.id, date: expense.expenseDate, expense })),
+    ...group.incomes.map((income) => ({ kind: "income" as const, id: income.id, date: income.expenseDate, income })),
     ...group.settlements.map((settlement) => ({ kind: "settlement" as const, id: settlement.id, date: settlement.settlementDate, settlement })),
   ].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
 
@@ -486,11 +488,14 @@ export async function shareGroupPdf(group: Group) {
     if (item.kind === "expense") {
       painter.row(item.expense.title, `خرید • پرداخت توسط ${item.expense.payerName} • ${persianDate(item.expense.expenseDate, true)}`, money(item.expense.amount), "neutral");
       item.expense.shares.forEach((share) => painter.meta(`سهم ${share.name} • وزن ${faNumber.format(share.weight)}`, money(share.amount)));
+    } else if (item.kind === "income") {
+      painter.row(item.income.title, `درآمد • دریافت توسط ${item.income.payerName} • ${persianDate(item.income.expenseDate, true)}`, money(item.income.amount), "positive");
+      item.income.shares.forEach((share) => painter.meta(`سهم ${share.name} • وزن ${faNumber.format(share.weight)}`, money(share.amount)));
     } else {
       painter.row(`${item.settlement.fromName} به ${item.settlement.toName}`, `تسویه • ${persianDate(item.settlement.settlementDate, true)}${item.settlement.note ? ` • ${item.settlement.note}` : ""}`, money(item.settlement.amount), "positive");
     }
   });
-  if (!activity.length) painter.note("هنوز خرید یا تسویه‌ای در این گروه ثبت نشده است.");
+  if (!activity.length) painter.note("هنوز خرید، درآمد یا تسویه‌ای در این گروه ثبت نشده است.");
 
   if (group.suggestions.length) {
     painter.section("پیشنهاد تسویه فعلی", `${faNumber.format(group.suggestions.length)} پرداخت پیشنهادی`);

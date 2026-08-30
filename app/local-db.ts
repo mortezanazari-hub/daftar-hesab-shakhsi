@@ -12,14 +12,15 @@ export type CheckEvent = { id: number; checkId: number; type: CheckEventType; ev
 export type CheckRecord = { id: number; direction: CheckDirection; checkType: "sayadi" | "guaranteed" | "other"; amount: number; issueDate: string | null; dueDate: string; purpose: string; sayadId: string; chequeNumber: string; bankName: string; branchName: string; issuerName: string; beneficiaryName: string; transferorName: string; relatedPersonId: number | null; counterpartyName: string; countInBalance: boolean; sayadStatus: CheckSayadStatus; status: CheckStatus; note: string; createdAt: string; receipt: ReceiptAttachment | null; currentHolderName: string; events: CheckEvent[]; overdue: boolean; financialOpen: boolean };
 export type GroupMember = { personId: number; name: string; shareWeight: number };
 export type ExpenseShare = { personId: number; name: string; amount: number; weight: number };
-export type Expense = { id: number; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[]; receipt: ReceiptAttachment | null };
-export type Balance = { personId: number; name: string; paid: number; owed: number; balance: number };
+export type SharedRecordKind = "expense" | "income";
+export type Expense = { id: number; kind: SharedRecordKind; payerPersonId: number; payerName: string; title: string; amount: number; expenseDate: string; shares: ExpenseShare[]; receipt: ReceiptAttachment | null };
+export type Balance = { personId: number; name: string; paid: number; owed: number; received: number; earned: number; balance: number };
 export type SettlementSuggestion = { fromPersonId: number; fromName: string; toPersonId: number; toName: string; amount: number };
 export type GroupSettlement = { id: number; groupId: number; fromPersonId: number; fromName: string; toPersonId: number; toName: string; amount: number; settlementDate: string; note: string; createdAt: string; receipt: ReceiptAttachment | null };
-export type Group = { id: number; name: string; members: GroupMember[]; expenses: Expense[]; totalSpent: number; balances: Balance[]; suggestions: SettlementSuggestion[]; settlements: GroupSettlement[] };
+export type Group = { id: number; name: string; members: GroupMember[]; expenses: Expense[]; incomes: Expense[]; totalSpent: number; totalIncome: number; balances: Balance[]; suggestions: SettlementSuggestion[]; settlements: GroupSettlement[] };
 export type PersonLedgerItem = {
   id: string;
-  source: "entry" | "expense" | "settlement" | "check";
+  source: "entry" | "expense" | "income" | "settlement" | "check";
   sourceId: number;
   groupId?: number;
   groupName?: string;
@@ -59,7 +60,7 @@ type StoredPerson = Omit<Person, "id"> & { id?: number; createdAt: string };
 type StoredEntry = Omit<Entry, "id" | "personName" | "receipt" | "role" | "settlesEntryId" | "settledByEntryId" | "transactionDate"> & { id?: number; role?: "obligation" | "settlement"; settlesEntryId?: number | null; transactionDate?: string | null; receipt?: ReceiptAttachment | null };
 type StoredGroup = { id?: number; name: string; createdAt: string };
 type StoredMember = { id?: number; groupId: number; personId: number; shareWeight: number; active?: boolean };
-type StoredExpense = Omit<Expense, "id" | "payerName" | "shares" | "receipt"> & { id?: number; groupId: number; createdAt: string; receipt?: ReceiptAttachment | null };
+type StoredExpense = Omit<Expense, "id" | "kind" | "payerName" | "shares" | "receipt"> & { id?: number; kind?: SharedRecordKind; groupId: number; createdAt: string; receipt?: ReceiptAttachment | null };
 type StoredShare = { id?: number; expenseId: number; personId: number; amount: number; weight?: number };
 type StoredSettlement = { id?: number; groupId: number; fromPersonId: number; toPersonId: number; amount: number; settlementDate: string; note: string; createdAt: string; receipt?: ReceiptAttachment | null };
 type StoredLoan = { id?: number; providerType: "bank" | "store" | "other"; providerName: string; title: string; principalAmount: number; totalPayable: number; downPayment: number; installmentCount: number; intervalMonths: number; firstDueDate: string; contractNumber: string; note: string; createdAt: string };
@@ -192,7 +193,7 @@ function uniqueMemberWeights(items: unknown, allowedIds?: Set<number>) {
 export function allocateExpenseShares(members: Array<{ personId: number; shareWeight: number }>, amount: number) {
   const weightedMembers = members.filter((member) => member.shareWeight > 0);
   const totalWeight = weightedMembers.reduce((sum, member) => sum + member.shareWeight, 0);
-  if (totalWeight <= 0) throw new Error("برای ثبت خرید، سهم حداقل یک عضو باید بیشتر از صفر باشد.");
+  if (totalWeight <= 0) throw new Error("برای ثبت تراکنش مشترک، سهم حداقل یک عضو باید بیشتر از صفر باشد.");
 
   const calculated = weightedMembers.map((member) => {
     const exact = (amount * member.shareWeight) / totalWeight;
@@ -277,7 +278,7 @@ function buildPersonAccounts(persons: Person[], entries: Entry[], groups: Group[
     const groupImpacts: PersonGroupImpact[] = [];
     for (const group of groups) {
       const isHistoricallyInvolved = group.members.some((member) => member.personId === person.id)
-        || group.expenses.some((expense) => expense.shares.some((share) => share.personId === person.id));
+        || [...group.expenses, ...group.incomes].some((record) => record.payerPersonId === person.id || record.shares.some((share) => share.personId === person.id));
       if (!isHistoricallyInvolved) continue;
 
       // The current account-to-account exposure is taken from the group's net settlement plan.
@@ -308,6 +309,28 @@ function buildPersonAccounts(persons: Person[], entries: Entry[], groups: Group[
             title: expense.title,
             detail: effect > 0 ? `دُنگ «${group.name}» • سهم ${person.name} از پرداخت من` : `دُنگ «${group.name}» • سهم من از پرداخت ${person.name}`,
             date: expense.expenseDate,
+            amount: Math.abs(effect),
+            effect,
+          });
+        }
+      }
+      for (const income of group.incomes) {
+        let effect = 0;
+        if (income.payerPersonId === self.id) {
+          effect = -(income.shares.find((share) => share.personId === person.id)?.amount ?? 0);
+        } else if (income.payerPersonId === person.id) {
+          effect = income.shares.find((share) => share.personId === self.id)?.amount ?? 0;
+        }
+        if (effect !== 0) {
+          items.push({
+            id: `income-${income.id}-${person.id}`,
+            source: "income",
+            sourceId: income.id,
+            groupId: group.id,
+            groupName: group.name,
+            title: income.title,
+            detail: effect > 0 ? `درآمد «${group.name}» • سهم من از دریافتی ${person.name}` : `درآمد «${group.name}» • سهم ${person.name} از دریافتی من`,
+            date: income.expenseDate,
             amount: Math.abs(effect),
             effect,
           });
@@ -417,9 +440,10 @@ export async function getFinanceData(): Promise<FinanceData> {
       const groupExpenses = storedExpenses.filter((expense) => expense.groupId === group.id);
       const expenseIds = new Set(groupExpenses.map((expense) => expense.id));
       const shares = storedShares.filter((share) => expenseIds.has(share.expenseId));
-      const expenses = groupExpenses
+      const sharedRecords = groupExpenses
         .map((expense) => ({
           id: expense.id,
+          kind: expense.kind === "income" ? "income" as const : "expense" as const,
           payerPersonId: expense.payerPersonId,
           payerName: names.get(expense.payerPersonId) ?? "نامشخص",
           title: expense.title,
@@ -431,6 +455,8 @@ export async function getFinanceData(): Promise<FinanceData> {
             .map((share) => ({ personId: share.personId, name: names.get(share.personId) ?? "نامشخص", amount: share.amount, weight: share.weight ?? (share.amount > 0 ? 1 : 0) })),
         }))
         .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.id - a.id);
+      const expenses = sharedRecords.filter((record) => record.kind === "expense");
+      const incomes = sharedRecords.filter((record) => record.kind === "income");
       const settlements = storedSettlements
         .filter((settlement) => settlement.groupId === group.id)
         .map((settlement) => ({
@@ -449,11 +475,15 @@ export async function getFinanceData(): Promise<FinanceData> {
         .sort((a, b) => b.settlementDate.localeCompare(a.settlementDate) || b.id - a.id);
       const balances = storedGroupMembers.map((member) => {
         const paid = expenses.filter((expense) => expense.payerPersonId === member.personId).reduce((sum, expense) => sum + expense.amount, 0);
-        const owed = shares.filter((share) => share.personId === member.personId).reduce((sum, share) => sum + share.amount, 0);
+        const expenseIds = new Set(expenses.map((expense) => expense.id));
+        const incomeIds = new Set(incomes.map((income) => income.id));
+        const owed = shares.filter((share) => expenseIds.has(share.expenseId) && share.personId === member.personId).reduce((sum, share) => sum + share.amount, 0);
+        const received = incomes.filter((income) => income.payerPersonId === member.personId).reduce((sum, income) => sum + income.amount, 0);
+        const earned = shares.filter((share) => incomeIds.has(share.expenseId) && share.personId === member.personId).reduce((sum, share) => sum + share.amount, 0);
         const settlementEffect = settlements.reduce((sum, settlement) => sum + (settlement.fromPersonId === member.personId ? settlement.amount : 0) - (settlement.toPersonId === member.personId ? settlement.amount : 0), 0);
-        return { personId: member.personId, name: names.get(member.personId) ?? "نامشخص", paid, owed, balance: paid - owed + settlementEffect, active: member.active !== false };
+        return { personId: member.personId, name: names.get(member.personId) ?? "نامشخص", paid, owed, received, earned, balance: paid - owed + earned - received + settlementEffect, active: member.active !== false };
       }).filter((balance) => balance.active || balance.balance !== 0).map(({ active: _active, ...balance }) => balance);
-      return { id: group.id, name: group.name, members, expenses, totalSpent: expenses.reduce((sum, expense) => sum + expense.amount, 0), balances, suggestions: makeSettlementSuggestions(balances), settlements };
+      return { id: group.id, name: group.name, members, expenses, incomes, totalSpent: expenses.reduce((sum, expense) => sum + expense.amount, 0), totalIncome: incomes.reduce((sum, income) => sum + income.amount, 0), balances, suggestions: makeSettlementSuggestions(balances), settlements };
     });
   const today = currentLocalIsoDate();
   const loans: Loan[] = storedLoans.map((loan) => {
@@ -859,7 +889,7 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const id = positiveInteger(payload.id, "شناسه تراکنش");
     const storeName = targetKind === "entry" ? "entries"
       : targetKind === "check" ? "checks"
-      : targetKind === "expense" ? "expenses"
+      : targetKind === "expense" || targetKind === "income" ? "expenses"
       : targetKind === "settlement" ? "settlements"
       : targetKind === "loan-payment" ? "loanPayments"
       : null;
@@ -969,23 +999,25 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     return;
   }
 
-  if (operation === "add_expense" || operation === "update_expense") {
-    const id = operation === "update_expense" ? positiveInteger(payload.id, "شناسه خرید") : null;
+  if (operation === "add_expense" || operation === "update_expense" || operation === "add_income" || operation === "update_income") {
+    const recordKind: SharedRecordKind = operation.endsWith("income") ? "income" : "expense";
+    const recordLabel = recordKind === "income" ? "درآمد" : "خرید";
+    const id = operation.startsWith("update_") ? positiveInteger(payload.id, `شناسه ${recordLabel}`) : null;
     let groupId = positiveInteger(payload.groupId, "گروه");
     let createdAt = new Date().toISOString();
     let existingReceipt: ReceiptAttachment | null = null;
     if (id) {
       const currentExpenses = await all<StoredExpense & { id: number }>(db, "expenses");
       const current = currentExpenses.find((expense) => expense.id === id);
-      if (!current) throw new Error("خرید موردنظر پیدا نشد.");
+      if (!current || (current.kind === "income" ? "income" : "expense") !== recordKind) throw new Error(`${recordLabel} موردنظر پیدا نشد.`);
       groupId = current.groupId;
       createdAt = current.createdAt;
       existingReceipt = current.receipt ?? null;
     }
-    const payerPersonId = positiveInteger(payload.payerPersonId, "پرداخت‌کننده");
+    const payerPersonId = positiveInteger(payload.payerPersonId, recordKind === "income" ? "دریافت‌کننده" : "پرداخت‌کننده");
     const amount = positiveInteger(payload.amount, "مبلغ");
     const title = cleanText(payload.title, 100);
-    if (!title) throw new Error("عنوان خرید را وارد کنید.");
+    if (!title) throw new Error(`عنوان ${recordLabel} را وارد کنید.`);
     const removeReceipt = payload.removeReceipt === true || String(payload.removeReceipt) === "1";
     const receipt = payload.receipt ? cleanReceipt(payload.receipt) : removeReceipt ? null : existingReceipt;
     const activeMembers = await getGroupMembers(db, groupId);
@@ -993,7 +1025,7 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     const historicalIds = new Set(oldShares.map((share) => share.personId));
     const allMembers = await getAllGroupMembers(db, groupId);
     const allowedMembers = id ? allMembers.filter((member) => member.active !== false || historicalIds.has(member.personId)) : activeMembers;
-    if (!allowedMembers.some((member) => member.personId === payerPersonId)) throw new Error("پرداخت‌کننده عضو فعال گروه یا از طرف‌های همین خرید نیست.");
+    if (!allowedMembers.some((member) => member.personId === payerPersonId)) throw new Error(`${recordKind === "income" ? "دریافت‌کننده" : "پرداخت‌کننده"} عضو فعال گروه یا از طرف‌های همین ${recordLabel} نیست.`);
     const weights = splitWeightsForGroup(payload, allowedMembers);
     const allocations = allocateExpenseShares(weights, amount);
     const transaction = db.transaction(["expenses", "shares"], "readwrite");
@@ -1002,10 +1034,10 @@ export async function applyFinanceOperation(payload: Record<string, unknown>) {
     let expenseId: number;
     if (id) {
       expenseId = id;
-      expenseStore.put({ id, groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense & { id: number });
+      expenseStore.put({ id, kind: recordKind, groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense & { id: number });
       for (const share of oldShares) shareStore.delete(share.id);
     } else {
-      expenseId = Number(await requestResult(expenseStore.add({ groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense)));
+      expenseId = Number(await requestResult(expenseStore.add({ kind: recordKind, groupId, payerPersonId, title, amount, expenseDate: cleanText(payload.expenseDate, 10) || new Date().toISOString().slice(0, 10), createdAt, receipt } satisfies StoredExpense)));
     }
     for (const share of allocations) shareStore.add({ expenseId, personId: share.personId, amount: share.amount, weight: share.weight } satisfies StoredShare);
     await transactionDone(transaction);

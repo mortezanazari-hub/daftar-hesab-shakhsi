@@ -178,7 +178,7 @@ test("tracks cheque journeys and keeps the everyday UI personal", async () => {
   assert.match(app, /جزئیات بیشتر/);
   assert.match(css, /check-timeline/);
   assert.match(css, /advanced-fields/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 test("lets monthly installment reminders be completed directly from due dates", async () => {
@@ -224,7 +224,7 @@ test("uses plus and minus steppers for dong shares while keeping direct numeric 
   assert.match(app, /زیاد کردن \$\{label\}/);
   assert.match(app, /type="number" min="0" max="100"/);
   assert.match(app, /<ShareStepper label=\{`سهم \$\{person\.name\}`\}/);
-  assert.match(app, /<ShareStepper label=\{`سهم خرید \$\{member\.name\}`\}/);
+  assert.match(app, /<ShareStepper label=\{`سهم \$\{recordLabel\} \$\{member\.name\}`\}/);
   assert.match(css, /\.share-stepper/);
   assert.match(css, /\.participant-share/);
 });
@@ -313,7 +313,7 @@ test("distinguishes user attachments from app-generated transaction receipts", a
   assert.match(app, /ارسال رسید کامل/);
   assert.match(app, /مدرک پیوست‌شده/);
   assert.match(css, /\.transaction-detail-share/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 test("gives transactions full detail pages and merges dong settlements into one activity timeline", async () => {
@@ -367,7 +367,7 @@ test("keeps mobile person/group layouts readable and exports complete PDF report
   const groupFix = css.lastIndexOf(".group-card-head > .group-title-button");
   assert.ok(ledgerFix > legacyLedgerButton);
   assert.ok(groupFix > legacyGroupButton);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 
@@ -390,7 +390,7 @@ test("direct debt and receivable settlements create linked counterpart transacti
   assert.match(app, /بدهی \/ طلب اصلی/);
   assert.match(app, /handleEntrySettlement\(entry\)/);
   assert.doesNotMatch(app, /onToggleEntry=\{\(entry\) => void post\(\{ operation: "toggle_entry"/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 
@@ -409,7 +409,7 @@ test("uses browser history so the phone Back button moves one screen back before
   assert.match(app, /window\.history\.back\(\)/);
   assert.match(app, /onClick=\{dismissSheet\}/);
   assert.match(app, /if \(close\) dismissSheet\(\)/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 
@@ -439,7 +439,7 @@ test("polishes transaction details and shares generated receipts together with a
   assert.match(css, /\.transaction-receipt-panel/);
   assert.match(css, /\.transaction-evidence-card/);
   assert.match(css, /\.detail-amount-block/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
 });
 
 
@@ -459,5 +459,23 @@ test("allows existing transaction attachments to be removed from edit and detail
   assert.match(localDb, /targetKind === "loan-payment" \? "loanPayments"/);
   assert.match(localDb, /removeReceipt \? null/);
   assert.match(css, /\.attachment-edit-current/);
-  assert.match(serviceWorker, /daftar-hesab-offline-v19/);
+  assert.match(serviceWorker, /daftar-hesab-offline-v20/);
+});
+
+test("records shared group income with inverse balance effects", async () => {
+  const [app, localDb, report, css] = await Promise.all([
+    readFile(new URL("app/FinanceApp.tsx", root), "utf8"),
+    readFile(new URL("app/local-db.ts", root), "utf8"),
+    readFile(new URL("app/report-pdf.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(app, /ثبت درآمد مشترک/);
+  assert.match(app, /درآمد دُنگی/);
+  assert.match(app, /openIncome/);
+  assert.match(app, /target\.kind === "expense" \|\| target\.kind === "income"/);
+  assert.match(localDb, /operation === "add_income"/);
+  assert.match(localDb, /paid - owed \+ earned - received \+ settlementEffect/);
+  assert.match(localDb, /source: "income"/);
+  assert.match(report, /درآمدها/);
+  assert.match(css, /\.group-transaction-row\.income/);
 });

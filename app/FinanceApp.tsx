@@ -18,12 +18,13 @@ import {
   type Person,
   type PersonAccount,
   type ReceiptAttachment,
+  type SharedRecordKind,
   type SettlementSuggestion,
 } from "./local-db";
 import { attachmentFromFormData, openAttachment, shareAttachment, shareTransactionReceipt, type TransactionReceiptData } from "./transaction-share";
 import { shareGroupPdf, sharePersonLedgerPdf } from "./report-pdf";
 
-type Sheet = "actions" | "person" | "entry" | "entry-settlement" | "group" | "expense" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "transaction-detail" | "tools" | null;
+type Sheet = "actions" | "person" | "entry" | "entry-settlement" | "group" | "expense" | "income" | "settlement" | "person-ledger" | "loan-form" | "loan-payment" | "check-form" | "check-transfer" | "transaction-detail" | "tools" | null;
 type Tab = "home" | "ledger" | "groups" | "loans" | "checks" | "calendar";
 type IconName = "home" | "book" | "users" | "calendar" | "user" | "user-plus" | "receipt" | "calendar-check" | "debt" | "receivable" | "installment" | "bank" | "store" | "check" | "trash" | "edit" | "download" | "upload" | "search" | "settlement" | "wallet";
 
@@ -32,6 +33,7 @@ type TransactionDetailTarget =
   | { kind: "entry"; id: number }
   | { kind: "check"; id: number }
   | { kind: "expense"; groupId: number; id: number }
+  | { kind: "income"; groupId: number; id: number }
   | { kind: "settlement"; groupId: number; id: number }
   | { kind: "loan-installment"; loanId: number; installmentId: number }
   | { kind: "loan-payment"; loanId: number; installmentId: number; paymentId: number };
@@ -227,7 +229,7 @@ export function FinanceApp() {
   const selectedExpenseGroup = data?.groups.find((group) => group.id === expenseGroupId);
   const editingEntry = data?.entries.find((entry) => entry.id === editingEntryId);
   const settlingEntry = data?.entries.find((entry) => entry.id === settlingEntryId);
-  const editingExpense = data?.groups.flatMap((group) => group.expenses.map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
+  const editingExpense = data?.groups.flatMap((group) => [...group.expenses, ...group.incomes].map((expense) => ({ group, expense }))).find((item) => item.expense.id === editingExpenseId);
   const editingGroup = data?.groups.find((group) => group.id === editingGroupId);
   const editingLoan = data?.loans.find((loan) => loan.id === editingLoanId);
   const editingCheck = data?.checks.find((check) => check.id === editingCheckId);
@@ -300,7 +302,7 @@ export function FinanceApp() {
     return `${entry.personName} ${entry.title} ${entry.note}`.toLocaleLowerCase("fa").includes(normalizedLedgerSearch);
   });
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase("fa");
-  const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${group.expenses.map((expense) => expense.title).join(" ")} ${group.settlements.map((settlement) => `${settlement.fromName} ${settlement.toName} ${settlement.note}`).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
+  const filteredGroups = (data?.groups ?? []).filter((group) => !normalizedGroupSearch || `${group.name} ${group.members.map((member) => member.name).join(" ")} ${[...group.expenses, ...group.incomes].map((record) => record.title).join(" ")} ${group.settlements.map((settlement) => `${settlement.fromName} ${settlement.toName} ${settlement.note}`).join(" ")}`.toLocaleLowerCase("fa").includes(normalizedGroupSearch));
   const normalizedLoanSearch = loanSearch.trim().toLocaleLowerCase("fa");
   const filteredLoans = (data?.loans ?? []).filter((loan) => {
     if (loanFilter === "active" && loan.remainingAmount === 0) return false;
@@ -402,7 +404,13 @@ export function FinanceApp() {
   function openExpense(groupId?: number, expense?: Expense) {
     setEditingExpenseId(expense?.id ?? null);
     setExpenseGroupId(groupId ?? expenseGroupId ?? data?.groups[0]?.id ?? null);
-    setSheet("expense");
+    setSheet(expense?.kind === "income" ? "income" : "expense");
+  }
+
+  function openIncome(groupId?: number, income?: Expense) {
+    setEditingExpenseId(income?.id ?? null);
+    setExpenseGroupId(groupId ?? expenseGroupId ?? data?.groups[0]?.id ?? null);
+    setSheet("income");
   }
 
   function openPersonLedger(personId: number) {
@@ -419,6 +427,7 @@ export function FinanceApp() {
     if (item.source === "entry") openTransactionDetail({ kind: "entry", id: item.sourceId });
     if (item.source === "check") openTransactionDetail({ kind: "check", id: item.sourceId });
     if (item.source === "expense" && item.groupId) openTransactionDetail({ kind: "expense", groupId: item.groupId, id: item.sourceId });
+    if (item.source === "income" && item.groupId) openTransactionDetail({ kind: "income", groupId: item.groupId, id: item.sourceId });
     if (item.source === "settlement" && item.groupId) openTransactionDetail({ kind: "settlement", groupId: item.groupId, id: item.sourceId });
   }
 
@@ -440,11 +449,12 @@ export function FinanceApp() {
   }
 
   function deleteExpense(expense: Expense) {
-    if (window.confirm(`خرید «${expense.title}» و سهم‌های آن حذف شود؟`)) void post({ operation: "delete_expense", id: expense.id }, { close: false });
+    const label = expense.kind === "income" ? "درآمد" : "خرید";
+    if (window.confirm(`${label} «${expense.title}» و سهم‌های آن حذف شود؟`)) void post({ operation: "delete_expense", id: expense.id }, { close: false });
   }
 
   function deleteGroup(group: Group) {
-    const confirmed = window.confirm(`گروه «${group.name}» حذف شود؟\n\n${number.format(group.expenses.length)} خرید و ${number.format(group.settlements.length)} تسویه این گروه برای همیشه حذف می‌شوند. اشخاص و ثبت‌های مستقیم آن‌ها حذف نمی‌شوند.`);
+    const confirmed = window.confirm(`گروه «${group.name}» حذف شود؟\n\n${number.format(group.expenses.length)} خرید، ${number.format(group.incomes.length)} درآمد و ${number.format(group.settlements.length)} تسویه این گروه برای همیشه حذف می‌شوند. اشخاص و ثبت‌های مستقیم آن‌ها حذف نمی‌شوند.`);
     if (confirmed) void post({ operation: "delete_group", id: group.id }, { close: false });
   }
 
@@ -621,7 +631,8 @@ export function FinanceApp() {
       return;
     }
     const groupId = editingExpense?.group.id ?? Number(form.get("groupId"));
-    await post({ operation: editingExpense ? "update_expense" : "add_expense", id: editingExpense?.expense.id, groupId, payerPersonId: form.get("payerPersonId"), title: form.get("title"), amount: form.get("amount"), expenseDate, splits, receipt, removeReceipt: form.get("removeReceipt") });
+    const recordKind: SharedRecordKind = editingExpense?.expense.kind ?? (sheet === "income" ? "income" : "expense");
+    await post({ operation: `${editingExpense ? "update" : "add"}_${recordKind}`, id: editingExpense?.expense.id, groupId, payerPersonId: form.get("payerPersonId"), title: form.get("title"), amount: form.get("amount"), expenseDate, splits, receipt, removeReceipt: form.get("removeReceipt") });
   }
 
   async function submitSettlement(event: FormEvent<HTMLFormElement>) {
@@ -749,11 +760,11 @@ export function FinanceApp() {
 
           {tab === "groups" && (
             <section className="page">
-              <div className="page-heading"><div><p className="eyebrow">خرج‌های مشترک و تسویه واقعی</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={() => beginGroup()}>+ گروه جدید</button></div>
-              <SearchField value={groupSearch} onChange={setGroupSearch} placeholder="جست‌وجوی گروه، عضو یا خرید..." />
-              {data.groups.length > 0 && <button className="expense-cta" onClick={() => openExpense()}><span className="expense-plus">+</span><span><strong>ثبت خرید مشترک</strong><small>افراد همین خرید و سهم هر نفر را مشخص کن</small></span><b>‹</b></button>}
+              <div className="page-heading"><div><p className="eyebrow">خرج، درآمد و تسویه واقعی گروه</p><h2>مدیریت دُنگ</h2></div><button className="small-primary" onClick={() => beginGroup()}>+ گروه جدید</button></div>
+              <SearchField value={groupSearch} onChange={setGroupSearch} placeholder="جست‌وجوی گروه، عضو، خرید یا درآمد..." />
+              {data.groups.length > 0 && <div className="group-entry-ctas"><button className="expense-cta" onClick={() => openExpense()}><span className="expense-plus">+</span><span><strong>ثبت خرید مشترک</strong><small>پرداخت‌کننده و سهم هر نفر را مشخص کن</small></span><b>‹</b></button><button className="expense-cta income-cta" onClick={() => openIncome()}><span className="expense-plus">+</span><span><strong>ثبت درآمد مشترک</strong><small>دریافت‌کننده و سهم هر نفر را مشخص کن</small></span><b>‹</b></button></div>}
               <div className="groups-stack">
-                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onEditGroup={() => beginGroup(group)} onDeleteGroup={() => deleteGroup(group)} onExpense={() => openExpense(group.id)} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onOpenTransaction={openTransactionDetail} />)}
+                {filteredGroups.map((group) => <GroupCard key={group.id} group={group} onEditGroup={() => beginGroup(group)} onDeleteGroup={() => deleteGroup(group)} onExpense={() => openExpense(group.id)} onIncome={() => openIncome(group.id)} onSettlement={(suggestion) => openSettlement(group, suggestion)} onManualSettlement={() => openSettlement(group)} onOpenTransaction={openTransactionDetail} />)}
                 {!filteredGroups.length && <EmptyState icon="users" title={data.groups.length ? "گروهی پیدا نشد" : "دُنگ‌ها از اینجا ساده می‌شوند"} detail={data.groups.length ? "عبارت جست‌وجو را تغییر بده." : "اعضا را انتخاب کن؛ در هر خرید هم می‌توانی شرکت‌کننده‌ها و سهم‌ها را جداگانه تعیین کنی."} action={data.groups.length ? "پاک کردن جست‌وجو" : "ساخت اولین گروه"} onAction={() => data.groups.length ? setGroupSearch("") : beginGroup()} />}
               </div>
             </section>
@@ -818,12 +829,12 @@ export function FinanceApp() {
         <section className={`bottom-sheet ${sheet === "transaction-detail" ? "transaction-detail-sheet" : ""}`} role="dialog" aria-modal="true">
           <div className="sheet-handle" />
           <button className="sheet-close" onClick={dismissSheet} aria-label="بستن">×</button>
-          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onCheck={() => openCheckForm()} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} hasGroup={Boolean(data?.groups.length)} />}
+          {sheet === "actions" && <ActionSheet onEntry={(kind) => openEntry(kind)} onLoan={openLoans} onCheck={() => openCheckForm()} onPerson={() => setSheet("person")} onGroup={() => beginGroup()} onExpense={() => openExpense()} onIncome={() => openIncome()} hasGroup={Boolean(data?.groups.length)} />}
           {sheet === "person" && <PersonForm onSubmit={submitPerson} busy={busy} />}
           {sheet === "entry" && <EntryForm key={editingEntry?.id ?? `new-${entryKind}`} kind={entryKind} people={people} initialEntry={editingEntry} onNeedPerson={() => setSheet("person")} onSubmit={submitEntry} busy={busy} />}
           {sheet === "entry-settlement" && settlingEntry && <DirectEntrySettlementForm entry={settlingEntry} onSubmit={submitDirectEntrySettlement} busy={busy} />}
           {sheet === "group" && <GroupForm key={editingGroup?.id ?? "new-group"} persons={data?.persons ?? []} values={groupMembers} setValues={setGroupMembers} initialGroup={editingGroup} onSubmit={submitGroup} onNeedPerson={() => setSheet("person")} busy={busy} />}
-          {sheet === "expense" && <ExpenseForm key={`${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
+          {(sheet === "expense" || sheet === "income") && <ExpenseForm key={`${sheet}-${editingExpense?.expense.id ?? "new"}-${selectedExpenseGroup?.id ?? "none"}`} mode={sheet} groups={data?.groups ?? []} selectedGroup={editingExpense?.group ?? selectedExpenseGroup} initialExpense={editingExpense?.expense} onGroupChange={(id) => { setEditingExpenseId(null); setExpenseGroupId(id); }} onSubmit={submitExpense} onNeedGroup={() => beginGroup()} busy={busy} />}
           {sheet === "settlement" && settlementDraft && <SettlementForm group={data?.groups.find((group) => group.id === settlementDraft.groupId)} draft={settlementDraft} onSubmit={submitSettlement} busy={busy} />}
           {sheet === "person-ledger" && selectedAccount && <PersonLedgerSheet account={selectedAccount} onEditEntry={(entryId) => { const entry = data?.entries.find((item) => item.id === entryId); if (entry) openEntry(entry.kind, entry); }} onOpenItem={openLedgerItem} />}
           {sheet === "transaction-detail" && detailTarget && data && <TransactionDetailPage data={data} target={detailTarget} onClose={() => setSheet(null)} onOpenDetail={openTransactionDetail} onRemoveAttachment={removeTransactionAttachment} onEditEntry={(entry) => openEntry(entry.kind, entry)} onDeleteEntry={(entry) => { setSheet(null); deleteEntry(entry); }} onToggleEntry={(entry) => handleEntrySettlement(entry)} onEditCheck={openCheckForm} onDeleteCheck={(check) => { setSheet(null); deleteCheck(check); }} onCheckStatus={updateCheckStatus} onTransferCheck={openCheckTransfer} onReturnCheck={returnCheckToMe} onEditExpense={(groupId, expense) => openExpense(groupId, expense)} onDeleteExpense={(expense) => { setSheet(null); deleteExpense(expense); }} onDeleteSettlement={(id) => { setSheet(null); deleteSettlement(id); }} onAddLoanPayment={openLoanPayment} onDeleteLoanPayment={(id) => { setSheet(null); deleteLoanPayment(id); }} />}
@@ -918,37 +929,39 @@ function PersonAccountCard({ account, onOpen, onDelete }: { account: PersonAccou
 
 function GroupPreview({ group, onClick }: { group: Group; onClick: () => void }) {
   return <button className="group-preview" onClick={onClick}>
-    <div className="group-preview-top"><span className="group-mark"><Icon name="users" size={19} /></span><div><strong>{group.name}</strong><small>{number.format(group.members.length)} نفر • {number.format(group.expenses.length + group.settlements.length)} تراکنش</small></div><b>{money(group.totalSpent)}</b></div>
+    <div className="group-preview-top"><span className="group-mark"><Icon name="users" size={19} /></span><div><strong>{group.name}</strong><small>{number.format(group.members.length)} نفر • {number.format(group.expenses.length + group.incomes.length + group.settlements.length)} تراکنش</small></div><b>خرج {money(group.totalSpent)} • درآمد {money(group.totalIncome)}</b></div>
     <div className="member-stack">{group.members.slice(0, 4).map((member) => <span key={member.personId} title={member.name}><Icon name="user" size={13} /></span>)}</div>
   </button>;
 }
 
-function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onSettlement, onManualSettlement, onOpenTransaction }: { group: Group; onEditGroup: () => void; onDeleteGroup: () => void; onExpense: () => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onOpenTransaction: (target: TransactionDetailTarget) => void }) {
+function GroupCard({ group, onEditGroup, onDeleteGroup, onExpense, onIncome, onSettlement, onManualSettlement, onOpenTransaction }: { group: Group; onEditGroup: () => void; onDeleteGroup: () => void; onExpense: () => void; onIncome: () => void; onSettlement: (suggestion: SettlementSuggestion) => void; onManualSettlement: () => void; onOpenTransaction: (target: TransactionDetailTarget) => void }) {
   const [expanded, setExpanded] = useState(false);
   const activity = [
     ...group.expenses.map((expense) => ({ kind: "expense" as const, id: expense.id, date: expense.expenseDate, expense })),
+    ...group.incomes.map((income) => ({ kind: "income" as const, id: income.id, date: income.expenseDate, income })),
     ...group.settlements.map((settlement) => ({ kind: "settlement" as const, id: settlement.id, date: settlement.settlementDate, settlement })),
   ].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   return <article className={`group-card ${expanded ? "expanded" : "collapsed"}`}>
-    <div className="group-card-head"><button className="group-title group-title-button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • {number.format(activity.length)} تراکنش • {money(group.totalSpent)}</p></div></button><div className="group-head-actions"><button className="group-collapse-toggle" onClick={() => setExpanded((current) => !current)}>{expanded ? "جمع کردن" : "باز کردن"} <b>{expanded ? "⌃" : "⌄"}</b></button>{expanded && <><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button></>}</div></div>
+    <div className="group-card-head"><button className="group-title group-title-button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}><span className="group-mark"><Icon name="users" size={19} /></span><div><h3>{group.name}</h3><p>{number.format(group.members.length)} عضو • {number.format(activity.length)} تراکنش • خرج {money(group.totalSpent)} • درآمد {money(group.totalIncome)}</p></div></button><div className="group-head-actions"><button className="group-collapse-toggle" onClick={() => setExpanded((current) => !current)}>{expanded ? "جمع کردن" : "باز کردن"} <b>{expanded ? "⌃" : "⌄"}</b></button>{expanded && <><button className="group-icon-action" onClick={onEditGroup} aria-label={`ویرایش گروه ${group.name}`} title="ویرایش گروه"><Icon name="edit" size={13} /></button><button className="group-icon-action danger" onClick={onDeleteGroup} aria-label={`حذف گروه ${group.name}`} title="حذف گروه"><Icon name="trash" size={13} /></button><button onClick={onManualSettlement}><Icon name="settlement" size={13} /> تسویه</button><button onClick={onExpense}>+ خرید</button><button className="income-action" onClick={onIncome}>+ درآمد</button></>}</div></div>
     {expanded && <div className="group-expanded-body">
       <button className="group-pdf-button" onClick={() => void shareGroupPdf(group)}><Icon name="upload" size={15} /> ارسال PDF کامل گروه</button>
-      <div className="balances-list">{group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج کرده {money(balance.paid)} • سهم {money(balance.owed)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}</div>
+      <div className="balances-list">{group.balances.map((balance) => <div key={balance.personId}><span className="mini-avatar"><Icon name="user" size={14} /></span><strong>{balance.name}</strong><small>خرج: پرداخت {money(balance.paid)} / سهم {money(balance.owed)} • درآمد: دریافت {money(balance.received)} / سهم {money(balance.earned)}</small><b className={balance.balance >= 0 ? "text-green" : "text-coral"}>{balance.balance === 0 ? "تسویه" : balance.balance > 0 ? `${shortMoney(balance.balance)} بستانکار` : `${shortMoney(-balance.balance)} بدهکار`}</b></div>)}</div>
       <div className="settlement-box"><div className="settlement-title"><strong>پیشنهاد تسویه</strong><small>{group.suggestions.length ? "بر اساس مانده فعلی" : "همه حساب‌ها تسویه‌اند"}</small></div>{group.suggestions.map((item) => <div className="settlement-row" key={`${item.fromPersonId}-${item.toPersonId}`}><p><span>{item.fromName}</span><i>←</i><span>{item.toName}</span><b>{money(item.amount)}</b></p><button onClick={() => onSettlement(item)}>ثبت تسویه</button></div>)}</div>
       <section className="transaction-history unified-transaction-history">
         <div className="transaction-history-head"><span><Icon name="receipt" size={16} /><strong>ریز تراکنش‌ها</strong></span><b>{number.format(activity.length)} مورد</b></div>
-        {activity.length ? <div className="transaction-list unified-transaction-list">{activity.map((item) => item.kind === "expense" ? <button className="group-transaction-row expense" key={`expense-${item.id}`} onClick={() => onOpenTransaction({ kind: "expense", groupId: group.id, id: item.expense.id })}><span className="transaction-icon"><Icon name="receipt" size={16} /></span><div><strong>{item.expense.title}</strong><small>خرید • پرداخت توسط {item.expense.payerName} • {persianDate(item.expense.expenseDate)}{item.expense.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.expense.amount)}</b><i>‹</i></button> : <button className="group-transaction-row settlement" key={`settlement-${item.id}`} onClick={() => onOpenTransaction({ kind: "settlement", groupId: group.id, id: item.settlement.id })}><span className="transaction-icon"><Icon name="settlement" size={16} /></span><div><strong>{item.settlement.fromName} به {item.settlement.toName} پرداخت کرد</strong><small>تسویه • {persianDate(item.settlement.settlementDate)}{item.settlement.note ? ` • ${item.settlement.note}` : ""}{item.settlement.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.settlement.amount)}</b><i>‹</i></button>)}</div> : <p className="no-transactions">هنوز تراکنشی در این گروه ثبت نشده است.</p>}
+        {activity.length ? <div className="transaction-list unified-transaction-list">{activity.map((item) => item.kind === "expense" ? <button className="group-transaction-row expense" key={`expense-${item.id}`} onClick={() => onOpenTransaction({ kind: "expense", groupId: group.id, id: item.expense.id })}><span className="transaction-icon"><Icon name="receipt" size={16} /></span><div><strong>{item.expense.title}</strong><small>خرید • پرداخت توسط {item.expense.payerName} • {persianDate(item.expense.expenseDate)}{item.expense.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.expense.amount)}</b><i>‹</i></button> : item.kind === "income" ? <button className="group-transaction-row income" key={`income-${item.id}`} onClick={() => onOpenTransaction({ kind: "income", groupId: group.id, id: item.income.id })}><span className="transaction-icon"><Icon name="receivable" size={16} /></span><div><strong>{item.income.title}</strong><small>درآمد • دریافت توسط {item.income.payerName} • {persianDate(item.income.expenseDate)}{item.income.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.income.amount)}</b><i>‹</i></button> : <button className="group-transaction-row settlement" key={`settlement-${item.id}`} onClick={() => onOpenTransaction({ kind: "settlement", groupId: group.id, id: item.settlement.id })}><span className="transaction-icon"><Icon name="settlement" size={16} /></span><div><strong>{item.settlement.fromName} به {item.settlement.toName} پرداخت کرد</strong><small>تسویه • {persianDate(item.settlement.settlementDate)}{item.settlement.note ? ` • ${item.settlement.note}` : ""}{item.settlement.receipt ? " • پیوست دارد" : ""}</small></div><b>{money(item.settlement.amount)}</b><i>‹</i></button>)}</div> : <p className="no-transactions">هنوز تراکنشی در این گروه ثبت نشده است.</p>}
       </section>
     </div>}
   </article>;
 }
 
-function ActionSheet({ onEntry, onLoan, onCheck, onPerson, onGroup, onExpense, hasGroup }: { onEntry: (kind: string) => void; onLoan: () => void; onCheck: () => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; hasGroup: boolean }) {
+function ActionSheet({ onEntry, onLoan, onCheck, onPerson, onGroup, onExpense, onIncome, hasGroup }: { onEntry: (kind: string) => void; onLoan: () => void; onCheck: () => void; onPerson: () => void; onGroup: () => void; onExpense: () => void; onIncome: () => void; hasGroup: boolean }) {
   return <><div className="sheet-title"><p>چه چیزی می‌خواهی ثبت کنی؟</p><h2>ثبت جدید</h2></div><div className="action-list">
     {(["debt", "receivable"] as const).map((kind) => { const meta = entryMeta[kind]; return <button key={kind} onClick={() => onEntry(kind)}><span className={`quick-icon ${meta.tone}`}><Icon name={meta.icon} /></span><div><strong>{meta.label}</strong><small>{kind === "debt" ? "بدهی مستقیم به یک شخص" : "طلب مستقیم از یک شخص"}</small></div><b>‹</b></button>; })}
     <button onClick={onLoan}><span className="quick-icon amber"><Icon name="bank" /></span><div><strong>وام و اقساط</strong><small>بانک، فروشگاه، مبلغ کل و برنامه اقساط</small></div><b>‹</b></button>
     <button onClick={onCheck}><span className="quick-icon violet"><Icon name="check" /></span><div><strong>چک</strong><small>دریافتی یا پرداختی، صیاد، بانک و طرف‌های سند</small></div><b>‹</b></button>
     <button onClick={hasGroup ? onExpense : onGroup}><span className="quick-icon blue"><Icon name="users" /></span><div><strong>{hasGroup ? "خرید دُنگی" : "گروه دُنگی"}</strong><small>{hasGroup ? "ثبت خرج مشترک با سهم اختصاصی" : "ساخت گروه و تعیین سهم‌های پیش‌فرض"}</small></div><b>‹</b></button>
+    {hasGroup && <button onClick={onIncome}><span className="quick-icon green"><Icon name="receivable" /></span><div><strong>درآمد دُنگی</strong><small>ثبت درآمد مشترک و تقسیم سهم اعضا</small></div><b>‹</b></button>}
     <button onClick={onPerson}><span className="quick-icon sand"><Icon name="user-plus" /></span><div><strong>شخص جدید</strong><small>افزودن به دفتر حساب‌های شخصی</small></div><b>‹</b></button>
   </div></>;
 }
@@ -1128,24 +1141,26 @@ function GroupForm({ persons, values, setValues, initialGroup, onSubmit, onNeedP
   </form>;
 }
 
-function ExpenseForm({ groups, selectedGroup, initialExpense, onGroupChange, onSubmit, onNeedGroup, busy }: { groups: Group[]; selectedGroup?: Group; initialExpense?: Expense; onGroupChange: (id: number) => void; onSubmit: (event: FormEvent<HTMLFormElement>, splits: Array<{ personId: number; shareWeight: number }>) => void; onNeedGroup: () => void; busy: boolean }) {
+function ExpenseForm({ mode, groups, selectedGroup, initialExpense, onGroupChange, onSubmit, onNeedGroup, busy }: { mode: SharedRecordKind; groups: Group[]; selectedGroup?: Group; initialExpense?: Expense; onGroupChange: (id: number) => void; onSubmit: (event: FormEvent<HTMLFormElement>, splits: Array<{ personId: number; shareWeight: number }>) => void; onNeedGroup: () => void; busy: boolean }) {
+  const isIncome = mode === "income";
+  const recordLabel = isIncome ? "درآمد" : "خرید";
   const currentMembers = selectedGroup?.members ?? [];
   const historicalMembers = (initialExpense?.shares ?? []).filter((share) => !currentMembers.some((member) => member.personId === share.personId)).map((share) => ({ personId: share.personId, name: share.name, shareWeight: share.weight, historical: true }));
   const participantMembers = [...currentMembers.map((member) => ({ ...member, historical: false })), ...historicalMembers];
   const initialWeights: Record<number, number> = Object.fromEntries(participantMembers.map((member) => [member.personId, initialExpense?.shares.find((share) => share.personId === member.personId)?.weight ?? member.shareWeight]));
   const [weights, setWeights] = useState<Record<number, number>>(initialWeights);
-  if (!groups.length) return <div className="form-empty"><span className="quick-icon blue"><Icon name="users" /></span><h2>اول یک گروه بساز</h2><p>برای ثبت خرید مشترک، اعضای گروه باید مشخص باشند.</p><button className="submit-button" onClick={onNeedGroup}>ساخت گروه دُنگی</button></div>;
+  if (!groups.length) return <div className="form-empty"><span className="quick-icon blue"><Icon name="users" /></span><h2>اول یک گروه بساز</h2><p>برای ثبت {recordLabel} مشترک، اعضای گروه باید مشخص باشند.</p><button className="submit-button" onClick={onNeedGroup}>ساخت گروه دُنگی</button></div>;
   const splits = participantMembers.map((member) => ({ personId: member.personId, shareWeight: Math.max(0, weights[member.personId] ?? 0) }));
-  return <form onSubmit={(event) => onSubmit(event, splits)}><div className="sheet-title"><p>{initialExpense ? "خرید و سهم‌ها را اصلاح کن" : "شرکت‌کننده‌های همین خرید را انتخاب کن"}</p><h2>{initialExpense ? "ویرایش خرید مشترک" : "خرید مشترک"}</h2></div>
+  return <form onSubmit={(event) => onSubmit(event, splits)}><div className="sheet-title"><p>{initialExpense ? `${recordLabel} و سهم‌ها را اصلاح کن` : `سهم اعضا از این ${recordLabel} را مشخص کن`}</p><h2>{initialExpense ? `ویرایش ${recordLabel} مشترک` : `${recordLabel} مشترک`}</h2></div>
     <label>گروه<select name="groupId" value={selectedGroup?.id ?? ""} disabled={Boolean(initialExpense)} onChange={(event) => onGroupChange(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-    <label>چه کسی پرداخت کرد؟<select name="payerPersonId" required defaultValue={initialExpense?.payerPersonId ?? ""}><option value="" disabled>انتخاب پرداخت‌کننده</option>{participantMembers.map((member) => <option key={member.personId} value={member.personId}>{member.name}{member.historical ? " — عضو سابق" : ""}</option>)}</select></label>
-    <label>بابت چه چیزی؟<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder="مثلاً خرید سوپرمارکت" /></label>
+    <label>{isIncome ? "چه کسی درآمد را دریافت کرد؟" : "چه کسی پرداخت کرد؟"}<select name="payerPersonId" required defaultValue={initialExpense?.payerPersonId ?? ""}><option value="" disabled>{isIncome ? "انتخاب دریافت‌کننده" : "انتخاب پرداخت‌کننده"}</option>{participantMembers.map((member) => <option key={member.personId} value={member.personId}>{member.name}{member.historical ? " — عضو سابق" : ""}</option>)}</select></label>
+    <label>{isIncome ? "درآمد بابت چه چیزی بود؟" : "بابت چه چیزی؟"}<input name="title" required defaultValue={initialExpense?.title ?? ""} placeholder={isIncome ? "مثلاً فروش وسایل سفر" : "مثلاً خرید سوپرمارکت"} /></label>
     <MoneyInput name="amount" label="مبلغ کل (تومان)" required defaultValue={initialExpense?.amount} placeholder="مثلاً ۱٬۸۵۰٬۰۰۰" />
-    <JalaliDatePicker name="expenseDate" label="تاریخ خرید شمسی" defaultToday={!initialExpense} required initialValue={initialExpense ? isoToJalaliInput(initialExpense.expenseDate) : ""} />
-    <AttachmentField label="پیوست / مدرک خرید" initialAttachment={initialExpense?.receipt} />
-    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>شرکت‌کنندگان این خرید</strong><small>صفر = بدون سهم در این خرید</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><div className="participant-share"><span>سهم</span><ShareStepper label={`سهم خرید ${member.name}`} value={weight} onChange={(value) => setWeights({ ...weights, [member.personId]: value })} /></div></div>; })}</div>}
-    <p className="form-hint">پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند.</p>
-    <SubmitButton busy={busy} label={initialExpense ? "ذخیره تغییرات خرید" : "ثبت و محاسبه دُنگ‌ها"} />
+    <JalaliDatePicker name="expenseDate" label={`تاریخ ${recordLabel} شمسی`} defaultToday={!initialExpense} required initialValue={initialExpense ? isoToJalaliInput(initialExpense.expenseDate) : ""} />
+    <AttachmentField label={`پیوست / مدرک ${recordLabel}`} initialAttachment={initialExpense?.receipt} />
+    {selectedGroup && <div className="expense-participants"><div className="member-picker-title"><strong>{isIncome ? "سهم‌بران این درآمد" : "شرکت‌کنندگان این خرید"}</strong><small>صفر = بدون سهم در این {recordLabel}</small></div>{participantMembers.map((member) => { const weight = weights[member.personId] ?? 0; return <div className={weight > 0 ? "participant active" : "participant"} key={member.personId}><button type="button" className="participant-toggle" onClick={() => setWeights({ ...weights, [member.personId]: weight > 0 ? 0 : Math.max(1, member.shareWeight || 1) })} aria-pressed={weight > 0}><span>{weight > 0 ? "✓" : ""}</span><strong>{member.name}{member.historical ? " (عضو سابق)" : ""}</strong></button><div className="participant-share"><span>سهم</span><ShareStepper label={`سهم ${recordLabel} ${member.name}`} value={weight} onChange={(value) => setWeights({ ...weights, [member.personId]: value })} /></div></div>; })}</div>}
+    <p className="form-hint">{isIncome ? "دریافت‌کننده می‌تواند سهم صفر داشته باشد. سهم درآمد هر عضو به طلب او از گروه اضافه می‌شود و مبلغی که دریافت‌کننده گرفته به بدهی او افزوده می‌شود." : "پرداخت‌کننده می‌تواند سهم صفر داشته باشد. مبلغ نهایی با روش گردکردن منصفانه تقسیم می‌شود و جمع سهم‌ها دقیقاً برابر مبلغ خرید می‌ماند."}</p>
+    <SubmitButton busy={busy} label={initialExpense ? `ذخیره تغییرات ${recordLabel}` : isIncome ? "ثبت و تقسیم درآمد" : "ثبت و محاسبه دُنگ‌ها"} />
   </form>;
 }
 
@@ -1181,7 +1196,7 @@ function PersonLedgerSheet({ account, onEditEntry, onOpenItem }: { account: Pers
     <div className="account-summary-grid three"><div><small>ثبت مستقیم</small><strong className={account.directBalance >= 0 ? "text-green" : "text-coral"}>{account.directBalance >= 0 ? "+" : "−"}{money(Math.abs(account.directBalance))}</strong></div><div><small>چک‌ها</small><strong className={account.checkBalance >= 0 ? "text-green" : "text-coral"}>{account.checkBalance >= 0 ? "+" : "−"}{money(Math.abs(account.checkBalance))}</strong></div><div><small>اثر دُنگ‌ها</small><strong className={account.dongBalance >= 0 ? "text-green" : "text-coral"}>{account.dongBalance >= 0 ? "+" : "−"}{money(Math.abs(account.dongBalance))}</strong></div></div>
     {account.groups.length > 0 && <div className="group-impact-list"><strong>تفکیک دُنگ‌ها</strong>{account.groups.map((impact) => <span key={impact.groupId}><i>{impact.groupName}</i><b className={impact.balance >= 0 ? "text-green" : "text-coral"}>{impact.balance >= 0 ? "+" : "−"}{money(Math.abs(impact.balance))}</b></span>)}</div>}
     <div className="section-title ledger-sheet-title"><h2>گردش کامل</h2><span>{number.format(account.items.length)} مورد</span></div>
-    <div className="person-ledger-list">{account.items.map((item) => { const directSettlement = item.source === "entry" && item.entryRole === "settlement"; return <article key={item.id} className={item.status === "paid" && !directSettlement ? "ledger-item paid" : `ledger-item${directSettlement ? " settlement-entry" : ""}`}><span className={`ledger-source ${item.source}`}><Icon name={directSettlement ? "settlement" : item.source === "entry" ? "book" : item.source === "check" ? "check" : item.source === "expense" ? "receipt" : "settlement"} size={15} /></span><button className="ledger-item-open" onClick={() => onOpenItem(item)}><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date)}</small></button><b className={item.effect >= 0 ? "text-green" : "text-coral"}>{item.status === "paid" && !directSettlement ? "تسویه‌شده" : `${item.effect >= 0 ? "+" : "−"}${money(Math.abs(item.effect))}`}</b>{item.source === "entry" && item.entryRole !== "settlement" && item.status === "open" && <button onClick={() => onEditEntry(item.sourceId)} aria-label="ویرایش ثبت"><Icon name="edit" size={13} /></button>}</article>; })}</div>
+    <div className="person-ledger-list">{account.items.map((item) => { const directSettlement = item.source === "entry" && item.entryRole === "settlement"; return <article key={item.id} className={item.status === "paid" && !directSettlement ? "ledger-item paid" : `ledger-item${directSettlement ? " settlement-entry" : ""}`}><span className={`ledger-source ${item.source}`}><Icon name={directSettlement ? "settlement" : item.source === "entry" ? "book" : item.source === "check" ? "check" : item.source === "expense" ? "receipt" : item.source === "income" ? "receivable" : "settlement"} size={15} /></span><button className="ledger-item-open" onClick={() => onOpenItem(item)}><strong>{item.title}</strong><small>{item.detail} • {persianDate(item.date)}</small></button><b className={item.effect >= 0 ? "text-green" : "text-coral"}>{item.status === "paid" && !directSettlement ? "تسویه‌شده" : `${item.effect >= 0 ? "+" : "−"}${money(Math.abs(item.effect))}`}</b>{item.source === "entry" && item.entryRole !== "settlement" && item.status === "open" && <button onClick={() => onEditEntry(item.sourceId)} aria-label="ویرایش ثبت"><Icon name="edit" size={13} /></button>}</article>; })}</div>
     {!account.items.length && <div className="member-picker-empty"><Icon name="book" size={24} /><strong>هنوز گردش مالی ندارد</strong><small>ثبت مستقیم یا دُنگی که به تو مربوط باشد اینجا دیده می‌شود.</small></div>}
   </div>;
 }
@@ -1246,13 +1261,17 @@ function TransactionDetailPage({ data, target, onClose, onOpenDetail, onRemoveAt
     return <TransactionDetailShell category={category} title={check.purpose} amount={check.amount} tone={check.direction === "received" ? "positive" : "negative"} date={receipt.date} status={receipt.status} receipt={receipt} attachment={check.receipt} onRemoveAttachment={() => onRemoveAttachment(target)} onClose={onClose} actions={<><button onClick={() => onEditCheck(check)}><Icon name="edit" size={14} /> ویرایش</button>{check.financialOpen && check.direction === "received" && check.currentHolderName === "من" && <button onClick={() => onTransferCheck(check)}>واگذار کردم</button>}{check.financialOpen && check.direction === "received" && check.currentHolderName !== "من" && <button onClick={() => onReturnCheck(check)}>برگشت دست من</button>}{check.financialOpen && <button onClick={() => onCheckStatus(check, "cleared")}>{check.direction === "received" ? "وصول شد" : "پاس شد"}</button>}{check.financialOpen && <button className="danger-soft" onClick={() => onCheckStatus(check, "bounced")}>برگشت خورد</button>}{check.status !== "open" && <button onClick={() => onCheckStatus(check, "open")}>برگردان به جریان</button>}<button className="danger" onClick={() => onDeleteCheck(check)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["طرف حساب", check.counterpartyName], ["بانک", check.bankName], ["شعبه", check.branchName], ["سررسید", persianDate(check.dueDate, true)], ["تاریخ صدور", check.issueDate ? persianDate(check.issueDate, true) : "ثبت نشده"], ["صادرکننده", check.issuerName], ["ذی‌نفع", check.beneficiaryName], ["دارنده فعلی", check.currentHolderName], ["واگذارکننده اولیه", check.transferorName], ["شناسه صیاد", check.sayadId || "ثبت نشده"], ["شماره چک", check.chequeNumber || "ثبت نشده"], ["وضعیت صیاد", sayadStatusLabel[check.sayadStatus]], ["اثر روی مانده", check.countInBalance ? "محاسبه می‌شود" : "فقط برای رهگیری"]]} />{check.events.length > 0 && <section className="detail-timeline"><h3>مسیر چک</h3><div className="check-timeline">{check.events.map((event) => <div key={event.id}><span className="timeline-dot" /><div><strong>{event.type === "received" ? `از ${event.fromName} گرفتم` : event.type === "issued" ? `به ${event.toName} دادم` : event.type === "transferred" ? `به ${event.toName} واگذار شد` : event.type === "cleared" ? "پاس / وصول شد" : event.type === "bounced" ? "برگشت خورد" : event.type === "returned" ? `از ${event.fromName} برگشت` : event.type === "cancelled" ? "باطل شد" : "دوباره در جریان قرار گرفت"}</strong><small>{persianDate(event.eventDate, true)}{event.note ? ` • ${event.note}` : ""}</small></div></div>)}</div></section>}{check.note && <div className="transaction-note"><small>یادداشت</small><p>{check.note}</p></div>}</TransactionDetailShell>;
   }
 
-  if (target.kind === "expense") {
+  if (target.kind === "expense" || target.kind === "income") {
     const group = data.groups.find((item) => item.id === target.groupId);
-    const expense = group?.expenses.find((item) => item.id === target.id);
-    if (!group || !expense) return <div className="form-empty"><Icon name="receipt" size={28} /><h2>این خرید پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
+    const isIncome = target.kind === "income";
+    const expense = (isIncome ? group?.incomes : group?.expenses)?.find((item) => item.id === target.id);
+    const recordLabel = isIncome ? "درآمد" : "خرید";
+    if (!group || !expense) return <div className="form-empty"><Icon name={isIncome ? "receivable" : "receipt"} size={28} /><h2>این {recordLabel} پیدا نشد</h2><button className="submit-button" onClick={onClose}>برگشت</button></div>;
     const sharesSummary = expense.shares.filter((share) => share.amount > 0).map((share) => `${share.name}: ${money(share.amount)}`).join(" • ");
-    const receipt: TransactionReceiptData = { reference: `D-${group.id}-${expense.id}`, category: "خرید دُنگی", title: expense.title, amount: expense.amount, date: persianDate(expense.expenseDate, true), status: "ثبت‌شده", direction: "neutral", fields: [{ label: "گروه", value: group.name }, { label: "پرداخت‌کننده", value: expense.payerName }, { label: "تقسیم", value: sharesSummary }] };
-    return <TransactionDetailShell category="خرید دُنگی" title={expense.title} amount={expense.amount} tone="neutral" date={receipt.date} status="ثبت‌شده" receipt={receipt} attachment={expense.receipt} onRemoveAttachment={() => onRemoveAttachment(target)} onClose={onClose} actions={<><button onClick={() => onEditExpense(group.id, expense)}><Icon name="edit" size={14} /> ویرایش</button><button className="danger" onClick={() => onDeleteExpense(expense)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["گروه", group.name], ["پرداخت‌کننده", expense.payerName], ["تاریخ خرید", persianDate(expense.expenseDate, true)], ["تعداد افراد دارای سهم", `${number.format(expense.shares.filter((share) => share.amount > 0).length)} نفر`]]} /><section className="detail-share-list"><h3>سهم افراد</h3>{expense.shares.map((share) => <div key={share.personId} className={share.amount === 0 ? "zero" : ""}><span>{share.name}<small>وزن {number.format(share.weight)}</small></span><strong>{money(share.amount)}</strong></div>)}</section></TransactionDetailShell>;
+    const category = isIncome ? "درآمد دُنگی" : "خرید دُنگی";
+    const actorLabel = isIncome ? "دریافت‌کننده" : "پرداخت‌کننده";
+    const receipt: TransactionReceiptData = { reference: `${isIncome ? "R" : "D"}-${group.id}-${expense.id}`, category, title: expense.title, amount: expense.amount, date: persianDate(expense.expenseDate, true), status: "ثبت‌شده", direction: isIncome ? "positive" : "neutral", fields: [{ label: "گروه", value: group.name }, { label: actorLabel, value: expense.payerName }, { label: "تقسیم", value: sharesSummary }] };
+    return <TransactionDetailShell category={category} title={expense.title} amount={expense.amount} tone={isIncome ? "positive" : "neutral"} date={receipt.date} status="ثبت‌شده" receipt={receipt} attachment={expense.receipt} onRemoveAttachment={() => onRemoveAttachment(target)} onClose={onClose} actions={<><button onClick={() => onEditExpense(group.id, expense)}><Icon name="edit" size={14} /> ویرایش</button><button className="danger" onClick={() => onDeleteExpense(expense)}><Icon name="trash" size={14} /> حذف</button></>}><DetailRows rows={[["گروه", group.name], [actorLabel, expense.payerName], [`تاریخ ${recordLabel}`, persianDate(expense.expenseDate, true)], ["تعداد افراد دارای سهم", `${number.format(expense.shares.filter((share) => share.amount > 0).length)} نفر`]]} /><section className="detail-share-list"><h3>سهم افراد</h3>{expense.shares.map((share) => <div key={share.personId} className={share.amount === 0 ? "zero" : ""}><span>{share.name}<small>وزن {number.format(share.weight)}</small></span><strong>{money(share.amount)}</strong></div>)}</section></TransactionDetailShell>;
   }
 
   if (target.kind === "settlement") {
